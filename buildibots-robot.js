@@ -1,5 +1,5 @@
 /*!
- * Buildibots 3D robotas – Webflow elementas (v4)
+ * Buildibots 3D robotas – Webflow elementas (v5)
  * Pagrindas: dizaino artifakto robotas (surinktas Tinkercad modelis + kodu sumodeliuoti vikšrai,
  * laidai ir antenos). LED ekrane – tikros roboto GIF animacijos (21×17).
  *
@@ -80,12 +80,45 @@
     });
   }
 
+  // Everything on the robot is rigid, so all opaque, untextured meshes that share a material are baked into one
+  // mesh (≈95 draw calls → ≈30). Textured (LED, logo), transparent (antennas) and instanced (tracks) meshes stay as they are.
+  function mergeStatic(T, root) {
+    root.updateMatrixWorld(true);
+    var inv = new T.Matrix4().copy(root.matrixWorld).invert(), groups = {}, order = [], drop = [];
+    root.traverse(function (o) {
+      if (!o.isMesh || o.isInstancedMesh || Array.isArray(o.material) || o.material.map || o.material.transparent) return;
+      var key = o.material.uuid + (o.castShadow ? '+' : '-');
+      if (!groups[key]) { groups[key] = { mat: o.material, cast: o.castShadow, recv: o.receiveShadow, items: [], nv: 0, ni: 0 }; order.push(key); }
+      var g = o.geometry, n = g.attributes.position.count;
+      if (!g.attributes.normal) g.computeVertexNormals();
+      var G = groups[key]; G.items.push({ g: g, m: new T.Matrix4().multiplyMatrices(inv, o.matrixWorld) }); G.nv += n; G.ni += g.index ? g.index.count : n;
+      drop.push(o);
+    });
+    drop.forEach(function (o) { o.parent.remove(o); });
+    var v = new T.Vector3(), nm = new T.Matrix3();
+    order.forEach(function (key) {
+      var G = groups[key], P = new Float32Array(G.nv * 3), N = new Float32Array(G.nv * 3), I = new Uint32Array(G.ni), vo = 0, io = 0;
+      G.items.forEach(function (it) {
+        var pa = it.g.attributes.position, na = it.g.attributes.normal, n = pa.count, idx = it.g.index;
+        nm.getNormalMatrix(it.m);
+        for (var i = 0; i < n; i++) {
+          v.set(pa.getX(i), pa.getY(i), pa.getZ(i)).applyMatrix4(it.m); P[(vo + i) * 3] = v.x; P[(vo + i) * 3 + 1] = v.y; P[(vo + i) * 3 + 2] = v.z;
+          v.set(na.getX(i), na.getY(i), na.getZ(i)).applyMatrix3(nm).normalize(); N[(vo + i) * 3] = v.x; N[(vo + i) * 3 + 1] = v.y; N[(vo + i) * 3 + 2] = v.z;
+        }
+        if (idx) for (var k = 0; k < idx.count; k++) I[io + k] = idx.getX(k) + vo; else for (var k2 = 0; k2 < n; k2++) I[io + k2] = vo + k2;
+        io += idx ? idx.count : n; vo += n;
+      });
+      var geo = new T.BufferGeometry(); geo.setAttribute('position', new T.BufferAttribute(P, 3)); geo.setAttribute('normal', new T.BufferAttribute(N, 3)); geo.setIndex(new T.BufferAttribute(I, 1));
+      var mesh = new T.Mesh(geo, G.mat); mesh.castShadow = G.cast; mesh.receiveShadow = G.recv; root.add(mesh);
+    });
+  }
+
   function buildRobot(T, GEO, colors, shadows) {
     var S = 0.125;
     var C = function (hex) { return new T.Color(hex).convertSRGBToLinear(); };
     var WX = [-58.71, 60.44], WY = 25.31, WR = 24.09, WZ = [54.22, -54.15], WW = 20;
     var RING_C = new T.Vector3(56.945, 84.042, -0.071), RING_N = new T.Vector3(0.927, 0.3751, 0.0004).normalize();
-    var plastic = function (hex, r) { return new T.MeshPhysicalMaterial({ color: C(hex), roughness: r, metalness: 0, clearcoat: 0.3, clearcoatRoughness: 0.35, envMapIntensity: 0.45 }); };
+    var plastic = function (hex, r) { return new T.MeshStandardMaterial({ color: C(hex), roughness: r - 0.06, metalness: 0 }); }; // standard PBR: no clearcoat pass (much cheaper per pixel on phones)
     var M = {
       head: plastic(colors.head, 0.4), cage: plastic(colors.cage, 0.4), chassis: plastic(colors.chassis, 0.42),
       belt: plastic(colors.tracks, 0.6), wheel: plastic(colors.wheels, 0.46), white: plastic(0xf4f3ef, 0.45),
@@ -94,7 +127,7 @@
       metal: new T.MeshStandardMaterial({ color: 0xc9ccd1, roughness: 0.28, metalness: 0.85 }),
       gold: new T.MeshStandardMaterial({ color: 0xd8b25a, roughness: 0.3, metalness: 0.9 }),
       // clear acrylic rods: faint body + darker core and bright cut ends read as glass without costly transmission
-      rod: new T.MeshPhysicalMaterial({ color: 0xdfe8f2, roughness: 0.06, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.04, transparent: true, opacity: 0.5, depthWrite: false }),
+      rod: new T.MeshStandardMaterial({ color: 0xdfe8f2, roughness: 0.06, metalness: 0.1, transparent: true, opacity: 0.5, depthWrite: false }),
       rodCore: new T.MeshBasicMaterial({ color: 0x9aa6b4, transparent: true, opacity: 0.35, depthWrite: false }),
       rodCap: new T.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, side: T.DoubleSide }),
       hub: new T.MeshStandardMaterial({ color: 0x141518, roughness: 0.5, metalness: 0.15 }),
@@ -207,7 +240,7 @@
     });
     // Real panel: white 5050 LEDs (each with its tiny die) on a black PCB; lit LEDs glow in neon colour.
     // The panel is wider than the animation mask, so every cell that fits inside the round window is drawn.
-    var SZ = 768, cv = document.createElement('canvas'); cv.width = cv.height = SZ;
+    var SZ = 512, cv = document.createElement('canvas'); cv.width = cv.height = SZ;
     var cx2 = cv.getContext('2d');
     var tex = new T.CanvasTexture(cv); tex.encoding = T.sRGBEncoding; tex.anisotropy = 4;
     var back = add(new T.CylinderGeometry(29.3, 29.3, 7, 64), new T.MeshStandardMaterial({ color: 0x0c0d10, roughness: 0.6 }), face); back.rotation.x = Math.PI / 2; back.position.z = -4.9;
@@ -215,36 +248,44 @@
     var led = add(new T.CircleGeometry(29.4, 96), ledMat, face); led.position.z = -1.3; led.castShadow = false;
     var FW = FACES.w, FH = FACES.h, MASK = FACES.mask, PAL = FACES.pal, last = null, onDraw = null;
     var pad = SZ * 0.045, D = SZ - 2 * pad, cw = D / FW, ch = D / FH, CELLS = [];
-    (function () { // cells whose whole square lies inside the round window
-      var R = SZ / 2 - 1, o = SZ / 2;
+    var base = document.createElement('canvas'); base.width = base.height = SZ; var bx = base.getContext('2d');
+    var tiny = document.createElement('canvas'); tiny.width = FW; tiny.height = FH; var tx = tiny.getContext('2d');
+    (function () { // cells whose whole square lies inside the round window; the unlit panel is drawn once
+      var Rr = SZ / 2 - 1, o = SZ / 2;
+      bx.fillStyle = '#101114'; bx.fillRect(0, 0, SZ, SZ);
       for (var r = 0; r < FH; r++) for (var c = 0; c < FW; c++) {
         var x0 = pad + c * cw + cw * 0.1, y0 = pad + r * ch + ch * 0.1, x1 = x0 + cw * 0.8, y1 = y0 + ch * 0.8;
-        if ([[x0, y0], [x1, y0], [x0, y1], [x1, y1]].every(function (p) { return Math.hypot(p[0] - o, p[1] - o) < R; }))
-          CELLS.push({ i: r * FW + c, inMask: MASK.charAt(r * FW + c) === '1', x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+        if (![[x0, y0], [x1, y0], [x0, y1], [x1, y1]].every(function (p) { return Math.hypot(p[0] - o, p[1] - o) < Rr; })) continue;
+        CELLS.push({ i: r * FW + c, r: r, c: c, inMask: MASK.charAt(r * FW + c) === '1', x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+        bx.fillStyle = '#e9e8e3'; bx.fillRect(x0, y0, x1 - x0, y1 - y0);                                      // white LED body
+        bx.fillStyle = '#b9b8b2'; bx.beginPath(); bx.arc((x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) * 0.17, 0, 6.2832); bx.fill(); // die
       }
     })();
     var mixW = function (hex, k) { // blend a colour towards white (hot LED core)
       var n = parseInt(hex.slice(1), 16), f = function (v) { return Math.round(v + (255 - v) * k); };
       return 'rgb(' + f(n >> 16) + ',' + f((n >> 8) & 255) + ',' + f(n & 255) + ')';
     };
+    var CORE = {}; PAL.forEach(function (c) { CORE[c] = mixW(c, 0.55); });
     function drawFrame(str) {
       if (str === last) return; last = str;
-      cx2.fillStyle = '#101114'; cx2.fillRect(0, 0, SZ, SZ);
+      cx2.drawImage(base, 0, 0);
+      tx.clearRect(0, 0, FW, FH);
       var lit = [];
-      CELLS.forEach(function (q) {
-        var v = q.inMask ? str.charCodeAt(q.i) - 48 : 0;
-        if (v > 0) { lit.push([q, PAL[v]]); return; }
-        cx2.fillStyle = '#e9e8e3'; cx2.fillRect(q.x, q.y, q.w, q.h);                       // white LED body
-        cx2.fillStyle = '#b9b8b2'; cx2.beginPath(); cx2.arc(q.x + q.w / 2, q.y + q.h / 2, q.w * 0.17, 0, 6.2832); cx2.fill(); // die
-      });
-      cx2.save(); cx2.shadowBlur = cw * 1.3;                                                // neon glow spills onto the neighbours (2 passes = stronger halo)
-      for (var pass = 0; pass < 2; pass++) lit.forEach(function (l) { var q = l[0]; cx2.shadowColor = l[1]; cx2.fillStyle = l[1]; cx2.fillRect(q.x - 1, q.y - 1, q.w + 2, q.h + 2); });
+      for (var k = 0; k < CELLS.length; k++) {
+        var q = CELLS[k], v = q.inMask ? str.charCodeAt(q.i) - 48 : 0;
+        if (v > 0) { lit.push(q, PAL[v]); tx.fillStyle = PAL[v]; tx.fillRect(q.c, q.r, 1, 1); }
+      }
+      if (!lit.length) { tex.needsUpdate = true; if (onDraw) onDraw(); return; }
+      // neon halo: the 21×17 colour map, smoothly upscaled, tints the neighbouring LEDs
+      cx2.save(); cx2.imageSmoothingEnabled = true; cx2.globalAlpha = 0.6;
+      cx2.drawImage(tiny, pad - cw * 0.5, pad - ch * 0.5, D + cw, D + ch); cx2.drawImage(tiny, pad - cw, pad - ch, D + 2 * cw, D + 2 * ch);
       cx2.restore();
-      lit.forEach(function (l) {
-        var q = l[0]; cx2.fillStyle = l[1]; cx2.fillRect(q.x, q.y, q.w, q.h);
-        cx2.fillStyle = mixW(l[1], 0.55); cx2.fillRect(q.x + q.w * 0.18, q.y + q.h * 0.18, q.w * 0.64, q.h * 0.64); // hot core
-        cx2.fillStyle = '#ffffff'; cx2.beginPath(); cx2.arc(q.x + q.w / 2, q.y + q.h / 2, q.w * 0.16, 0, 6.2832); cx2.fill();
-      });
+      for (var m = 0; m < lit.length; m += 2) {
+        var p = lit[m], col = lit[m + 1];
+        cx2.fillStyle = col; cx2.fillRect(p.x, p.y, p.w, p.h);
+        cx2.fillStyle = CORE[col]; cx2.fillRect(p.x + p.w * 0.18, p.y + p.h * 0.18, p.w * 0.64, p.h * 0.64); // hot core
+        cx2.fillStyle = '#ffffff'; cx2.beginPath(); cx2.arc(p.x + p.w / 2, p.y + p.h / 2, p.w * 0.16, 0, 6.2832); cx2.fill();
+      }
       tex.needsUpdate = true;
       if (onDraw) onDraw();
     }
@@ -276,6 +317,7 @@
       var cap = add(new T.RingGeometry(0.9, 1.75, 16), M.rodCap); cap.position.copy(tipP); cap.lookAt(tipP.clone().add(tipD)); cap.castShadow = false;
     });
 
+    mergeStatic(T, body);
     var MATS = { head: M.head, cage: M.cage, chassis: M.chassis, wheels: M.wheel, tracks: M.belt };
     return {
       bot: bot, drawFrame: drawFrame, set onDraw(f) { onDraw = f; },
@@ -295,7 +337,8 @@
     var restYaw = parseFloat(ds.yaw || opts.yaw || 0.55);
     var zoom = parseFloat(ds.zoom || opts.zoom || 1);
     var interactive = (ds.interactive || opts.interactive) !== 'false';
-    var shadows = (ds.shadows || opts.shadows) !== 'false';
+    // shadows: 'contact' (default, soft shadow baked once – cheap), 'real' (live shadow map – heavy), 'false' (none)
+    var shadowMode = String(ds.shadows || opts.shadows || 'contact'), shadows = shadowMode === 'real';
     var glb = opts.glb || ds.glb;
     var api = { host: host, play: function () {}, setColors: function () {}, destroy: function () {} };
     host.__bbRobot = api;
@@ -311,7 +354,7 @@
     function start(GEO) {
       var T = THREE, renderer;
       try { renderer = new T.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' }); } catch (e) { return; }
-      var dpr = Math.min(1.75, window.devicePixelRatio || 1);
+      var dpr = Math.min(1.5, window.devicePixelRatio || 1);
       renderer.setPixelRatio(dpr);
       renderer.outputEncoding = T.sRGBEncoding;
       renderer.toneMapping = T.LinearToneMapping;
@@ -331,10 +374,34 @@
       key.shadow.radius = 4; key.shadow.bias = -0.0005; scene.add(key);
       var rim = new T.DirectionalLight(0xdfeaff, 0.45); rim.position.set(14, 10, -16); scene.add(rim);
       var ground = new T.Mesh(new T.PlaneGeometry(90, 90), new T.ShadowMaterial({ opacity: 0.17 }));
-      ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+      ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; ground.visible = shadows; scene.add(ground);
 
       var robot = buildRobot(T, GEO, colors, shadows), bot = robot.bot;
       scene.add(bot);
+      if (shadowMode === 'contact') bakeContactShadow();
+
+      // soft contact shadow: the robot's silhouette seen from above, rendered once, blurred, and laid under it
+      // (it turns with the robot, so nothing has to be re-rendered per frame)
+      function bakeContactShadow() {
+        var S2 = 256, rt = new T.WebGLRenderTarget(S2, S2), oc = new T.OrthographicCamera(-15, 15, 15, -15, 0.1, 80);
+        oc.position.set(0, 50, 0); oc.up.set(0, 0, -1); oc.lookAt(0, 0, 0);
+        bot.rotation.y = 0; bot.updateMatrixWorld(true);
+        var cc = renderer.getClearColor(new T.Color()), ca = renderer.getClearAlpha();
+        scene.overrideMaterial = new T.MeshBasicMaterial({ color: 0xffffff });
+        renderer.setRenderTarget(rt); renderer.setClearColor(0x000000, 0); renderer.clear(); renderer.render(scene, oc);
+        var px = new Uint8Array(S2 * S2 * 4); renderer.readRenderTargetPixels(rt, 0, 0, S2, S2, px);
+        renderer.setRenderTarget(null); renderer.setClearColor(cc, ca); scene.overrideMaterial = null; rt.dispose();
+        var mc = document.createElement('canvas'); mc.width = mc.height = S2; var mx = mc.getContext('2d'), id = mx.createImageData(S2, S2);
+        for (var y = 0; y < S2; y++) for (var x = 0; x < S2; x++) id.data[(y * S2 + x) * 4 + 3] = px[((S2 - 1 - y) * S2 + x) * 4 + 3];
+        mx.putImageData(id, 0, 0);
+        var out = document.createElement('canvas'); out.width = out.height = 128; var ox = out.getContext('2d');
+        [[56, 0.6], [18, 0.5]].forEach(function (b) { // two blur radii by down/up-scaling: tight contact + wide ambient
+          var t = document.createElement('canvas'); t.width = t.height = b[0]; var tc = t.getContext('2d');
+          tc.drawImage(mc, 0, 0, b[0], b[0]); ox.globalAlpha = b[1]; ox.drawImage(t, 0, 0, 128, 128);
+        });
+        var sh = new T.Mesh(new T.PlaneGeometry(30, 30), new T.MeshBasicMaterial({ map: new T.CanvasTexture(out), transparent: true, opacity: 0.42, depthWrite: false, toneMapped: false }));
+        sh.rotation.x = -Math.PI / 2; sh.position.y = 0.02; sh.renderOrder = -1; bot.add(sh);
+      }
       api.setColors = function (c) { robot.setColors(c); requestRender(); };
 
       // ---------- camera: fits the robot (tracks + antennas) into any box size ----------
@@ -404,8 +471,10 @@
       }
 
       // ---------- loop: renders only while visible; drops shadows/resolution if the device struggles ----------
-      var raf = 0, visible = true, paused = false, dead = false, prev = performance.now(), slow = 0, level = 0;
-      function requestRender() { if (!raf && visible && !dead && !paused) { prev = performance.now(); raf = requestAnimationFrame(loop); } }
+      var raf = 0, visible = true, paused = false, dead = false, prev = performance.now(), lastDraw = 0, accR = 0, cnt = 0, dprNow = dpr, inLoop = false, needsMore = false;
+      // exactly one render loop at a time: calls made while a frame is being drawn (face change, resize) are ignored,
+      // the running loop already continues (earlier versions started an extra loop on every face frame – the lag that grew over time)
+      function requestRender() { if (inLoop) { needsMore = true; return; } if (!raf && visible && !dead && !paused) { prev = performance.now(); lastDraw = 0; raf = requestAnimationFrame(loop); } }
       robot.onDraw = requestRender;
       var io = new IntersectionObserver(function (es) { visible = es[0].isIntersecting; if (visible) requestRender(); }, { rootMargin: '100px' });
       io.observe(host);
@@ -415,12 +484,21 @@
       function loop() {
         raf = 0;
         if (!visible || dead || paused || document.hidden) return;
-        var now = performance.now(), raw = now - prev; prev = now;
-        if (raw > 45) slow++; else slow = Math.max(0, slow - 1);
-        if (slow > 40) {
-          slow = 0; level++;
-          if (level === 1) { renderer.setPixelRatio(1); fit(); }
-          else if (level === 2 && shadows) { renderer.shadowMap.enabled = false; key.castShadow = false; ground.visible = false; scene.traverse(function (o) { if (o.material) [].concat(o.material).forEach(function (m) { m.needsUpdate = true; }); }); }
+        inLoop = true; try { frame(); } finally { inLoop = false; }
+      }
+      function frame() {
+        var now = performance.now(), idleSpin = !dragging && now - releasedAt > 800;
+        // while it only spins by itself, ~30 fps is plenty (half the GPU work, phones stay cool); full rate while dragging
+        if (idleSpin && lastDraw && now - lastDraw < 30) { raf = requestAnimationFrame(loop); return; }
+        var raw = now - prev; prev = now; lastDraw = now;
+        // adaptive quality: if frames take ~1.5× longer than they should for ~2 s, lower the resolution step by step
+        accR += raw / (idleSpin ? 33.3 : 16.7); cnt++;
+        if (cnt >= 60) {
+          var ratio = accR / cnt; accR = cnt = 0;
+          if (ratio > 1.5) {
+            if (dprNow > 1) { dprNow = Math.max(1, dprNow - 0.25); renderer.setPixelRatio(dprNow); fit(); }
+            else if (shadows && renderer.shadowMap.enabled) { renderer.shadowMap.enabled = false; key.castShadow = false; ground.visible = false; scene.traverse(function (o) { if (o.material) [].concat(o.material).forEach(function (m) { m.needsUpdate = true; }); }); }
+          }
         }
         var dt = Math.min(0.05, raw / 1000);
         if (!dragging) { vel += (autoSpeed - vel) * Math.min(1, dt * 1.6); yaw += vel * dt; }
@@ -428,7 +506,7 @@
         bot.rotation.y = yaw; placeCamera(); stepFace(dt);
         renderer.render(scene, camera);
         var settled = !dragging && autoSpeed === 0 && Math.abs(vel) < 1e-3 && Math.abs(pitch - REST_PITCH) < 1e-3 && !anim;
-        if (!settled) raf = requestAnimationFrame(loop);
+        if (!settled || needsMore) { needsMore = false; raf = requestAnimationFrame(loop); }
       }
 
       fit();
