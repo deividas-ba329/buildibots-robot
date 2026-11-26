@@ -582,11 +582,12 @@
     var ASM = {};
     body.children.slice().forEach(function (o) { var g = o.userData.g || 'misc'; if (!ASM[g]) { ASM[g] = new T.Group(); ASM[g].userData.g = g; } ASM[g].add(o); });
     Object.keys(ASM).forEach(function (g) { body.add(ASM[g]); mergeStatic(T, ASM[g]); });
-    var MATS = { head: M.head, cage: M.cage, chassis: M.chassis, wheels: M.wheel, tracks: M.belt };
+    // colour keys → every material that wears that colour (the track lugs use their own double-sided copy of the belt)
+    var MATS = { head: [M.head], cage: [M.cage], chassis: [M.chassis], wheels: [M.wheel], tracks: [M.belt, M.lug] };
     return {
       // minY = lowest point of the robot (tips of the track treads), in world units
       bot: bot, asm: ASM, shankMat: M.shank, drawFrame: drawFrame, minY: (WY - R - 1.25 - 1.05) * S, set onDraw(f) { onDraw = f; },
-      setColors: function (c) { Object.keys(c || {}).forEach(function (k) { if (MATS[k]) MATS[k].color.set(c[k]).convertSRGBToLinear(); }); }
+      setColors: function (c) { Object.keys(c || {}).forEach(function (k) { (MATS[k] || []).forEach(function (m) { m.color.set(c[k]).convertSRGBToLinear(); }); }); }
     };
   }
 
