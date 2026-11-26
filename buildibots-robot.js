@@ -1,5 +1,5 @@
 /*!
- * Buildibots 3D robotas – Webflow elementas (v5)
+ * Buildibots 3D robotas – Webflow elementas (v5.1)
  * Pagrindas: dizaino artifakto robotas (surinktas Tinkercad modelis + kodu sumodeliuoti vikšrai,
  * laidai ir antenos). LED ekrane – tikros roboto GIF animacijos (21×17).
  *
@@ -146,12 +146,12 @@
       yellow: plastic(0xffdd1a, 0.45), orange: plastic(0xf5831f, 0.45), gold: M.gold, grey: M.metal,
       head_key: M.head, holder: M.white, // "Šviečiančių antenų laikiklis.stl" (one solid part, in the GLB)
       // real control board ("schema.stl") on its white holder (plate): black PCB, dark ICs/headers, white JST connectors, metal caps/RF shield
-      pcb: new T.MeshStandardMaterial({ color: 0x121316, roughness: 0.55, metalness: 0.1 }),
-      pcb_parts: new T.MeshStandardMaterial({ color: 0x17181b, roughness: 0.5, metalness: 0.1 }),
+      pcb: new T.MeshStandardMaterial({ color: C(0x141518), roughness: 0.55, metalness: 0.1 }),
+      pcb_parts: new T.MeshStandardMaterial({ color: C(0x1c1d21), roughness: 0.5, metalness: 0.1 }),
       pcb_white: plastic(0xf1f0ea, 0.5),
       pcb_metal: new T.MeshStandardMaterial({ color: 0xc4c8ce, roughness: 0.3, metalness: 0.8 }),
       // 4 × AA cells in the bottom frame: dark wrap, metal caps, springs and contacts
-      battery: new T.MeshStandardMaterial({ color: 0x24262b, roughness: 0.35, metalness: 0.2 }),
+      battery: new T.MeshStandardMaterial({ color: C(0x2a2c31), roughness: 0.35, metalness: 0.2 }),
       battery_metal: new T.MeshStandardMaterial({ color: 0xc9ccd1, roughness: 0.28, metalness: 0.85 }) };
     // the head sits 0.5 mm proud of the red mounting plate, so the two never interpenetrate (no flicker at the contact)
     var HEAD_DX = 0.5;
@@ -183,7 +183,8 @@
     }
 
     // ---------- tracks ----------
-    var R = WR + 0.6, L = WX[1] - WX[0], TOOTH = 2 * Math.PI / 16, NL = Math.round((2 * L + 2 * Math.PI * R) / (TOOTH * R));
+    // R = inner face of the belt = centre radius of the sprocket's Ø9 grooves (measured: 25.0), so each lug sits in a groove
+    var R = 25.0, L = WX[1] - WX[0], TOOTH = 2 * Math.PI / 16, NL = Math.round((2 * L + 2 * Math.PI * R) / (TOOTH * R));
     var PER = NL * TOOTH * R, Lp = (PER - 2 * Math.PI * R) / 2, kx = L / Lp;
     var at = function (s) {
       s = ((s % PER) + PER) % PER;
@@ -194,7 +195,7 @@
     };
     var dummy = new T.Object3D();
     WZ.forEach(function (zc) {
-      var Ro = R + 1.6, sh = new T.Shape(); // thinner flat belt
+      var Ro = R + 0.8, sh = new T.Shape(); // belt 0.8 mm thick
       sh.moveTo(WX[0], WY + Ro); sh.lineTo(WX[1], WY + Ro); sh.absarc(WX[1], WY, Ro, Math.PI / 2, -Math.PI / 2, true);
       sh.lineTo(WX[0], WY - Ro); sh.absarc(WX[0], WY, Ro, -Math.PI / 2, Math.PI / 2, true);
       var h = new T.Path(); h.moveTo(WX[0], WY + R); h.absarc(WX[0], WY, R, Math.PI / 2, 3 * Math.PI / 2, false);
@@ -203,15 +204,18 @@
       // outer face: fine saw-tooth treads (triangular prisms); inner face: hollow round lugs that sit between the sprocket teeth
       var nR = NL * 5, tooth = new T.CylinderGeometry(1.05, 1.05, WW + 1, 3); tooth.rotateX(-Math.PI / 2);
       var ribs = new T.InstancedMesh(tooth, M.belt, nR); ribs.castShadow = shadows; body.add(ribs);
-      var lugShape = new T.Shape(); lugShape.absarc(0, 0, 3.25, 0, Math.PI * 2, false);
-      var lugHole = new T.Path(); lugHole.absarc(0, 0, 2.2, 0, Math.PI * 2, true); lugShape.holes.push(lugHole);
-      var lugGeo = new T.ExtrudeGeometry(lugShape, { depth: WW, bevelEnabled: false, curveSegments: 20 }); lugGeo.translate(0, 0, -WW / 2);
-      var lugs = new T.InstancedMesh(lugGeo, M.belt, NL); body.add(lugs); // hollow lugs with ~1 mm walls
-      [[ribs, nR, 2.05, false], [lugs, NL, -1.6, true]].forEach(function (a) {
+      // half-pipe lugs: same Ø (8.8) as the sprocket grooves, wall 0.53 mm, centred on the belt's inner face → exactly half shows
+      var LO = 4.4, LI = 3.87, lugShape = new T.Shape();
+      lugShape.absarc(0, 0, LO, Math.PI, 2 * Math.PI, false); lugShape.lineTo(LI, 0); lugShape.absarc(0, 0, LI, 2 * Math.PI, Math.PI, true); lugShape.lineTo(-LO, 0);
+      var lugGeo = new T.ExtrudeGeometry(lugShape, { depth: WW, bevelEnabled: false, curveSegments: 24 }); lugGeo.translate(0, 0, -WW / 2);
+      var lugs = new T.InstancedMesh(lugGeo, M.lug, NL); body.add(lugs);
+      // centre bridge between neighbouring lugs (stiffens the belt, as on the printed track): 4 mm wide, 2.5 mm high
+      var bridges = new T.InstancedMesh(new T.BoxGeometry(3.2, 2.5, 4), M.belt, NL); body.add(bridges);
+      [[ribs, nR, 1.25, 0], [lugs, NL, 0, 0], [bridges, NL, -1.25, 0.5]].forEach(function (a) {
         for (var i = 0; i < a[1]; i++) {
-          var q = at(i * PER / a[1]), cx = Math.min(WX[1], Math.max(WX[0], q[0])), vx = q[0] - cx, vy = q[1] - WY, l = Math.hypot(vx, vy) || 1; vx /= l; vy /= l;
+          var q = at((i + a[3]) * PER / a[1]), cx = Math.min(WX[1], Math.max(WX[0], q[0])), vx = q[0] - cx, vy = q[1] - WY, l = Math.hypot(vx, vy) || 1; vx /= l; vy /= l;
           dummy.position.set(q[0] + vx * a[2], q[1] + vy * a[2], zc);
-          if (a[3]) dummy.rotation.set(0, 0, 0); else dummy.rotation.set(0, 0, Math.atan2(vy, vx) - Math.PI / 2);
+          dummy.rotation.set(0, 0, Math.atan2(vy, vx) - Math.PI / 2);
           dummy.updateMatrix(); a[0].setMatrixAt(i, dummy.matrix);
         }
         a[0].instanceMatrix.needsUpdate = true;
@@ -234,9 +238,9 @@
     body.add(face);
     // four black socket-head screws on the bezel tabs (as on the real robot)
     [45, 135, -45, -135].forEach(function (deg) {
-      var a = deg * Math.PI / 180, sx = Math.cos(a) * 36.4, sy = Math.sin(a) * 36.4;
-      var hd = add(screwHead, M.screw, face); hd.position.set(sx, sy, 4.3);
-      var hx = add(screwHex, M.socket, face); hx.position.set(sx, sy, 5.42); hx.castShadow = false;
+      var a = deg * Math.PI / 180, sx = Math.cos(a) * 34.0, sy = Math.sin(a) * 34.0; // centred on the Ø3 holes in the bezel tabs
+      var hd = add(screwHead, M.screw, face); hd.position.set(sx, sy, 4.4);
+      var hx = add(screwHex, M.socket, face); hx.position.set(sx, sy, 5.52); hx.castShadow = false;
     });
     // Real panel: white 5050 LEDs (each with its tiny die) on a black PCB; lit LEDs glow in neon colour.
     // The panel is wider than the animation mask, so every cell that fits inside the round window is drawn.
@@ -291,18 +295,38 @@
     }
 
     // ---------- signal wires + light-fibre antennas ----------
-    // 6-wire looms (red, yellow, green, blue, white, black) as on the real robot:
-    // two from the JST connectors in front of the ESP32 up to the head, two loops from the small rear connectors to the front headers
-    var WIRE = [0xe8402f, 0xf3c623, 0x2fa84f, 0x2e5fe0, 0xf2f2f2, 0x1b1b1b].map(function (c) { return new T.MeshStandardMaterial({ color: c, roughness: 0.45 }); });
+    // 6-wire looms (red, yellow, green, blue, white, black) as on the real robot (photos of the rear of the board):
+    // · one ribbon from the white connector at the front of the board up into the head
+    // · on each side, a loop from the top-entry connector in front of the ESP32 up and back down into the vertical
+    //   connector beside the ESP32 (the black 2×5 headers stay empty)
+    var WIRE = [0xe02a1f, 0xf2c21a, 0x1f9a45, 0x2457d6, 0xf2f2f2, 0x1b1b1b].map(function (c) { return new T.MeshStandardMaterial({ color: C(c), roughness: 0.45 }); }); // saturated insulation colours (sRGB)
     var V3 = function (x, y, z) { return new T.Vector3(x, y, z); };
     function loom(path, pitch, z0) { // path(z) -> points for the wire whose pin sits at lateral position z
       WIRE.forEach(function (mat, i) {
         var w = add(new T.TubeGeometry(new T.CatmullRomCurve3(path(z0 + (i - 2.5) * pitch, i)), 40, 0.52, 6, false), mat); w.castShadow = false;
       });
     }
+    // head ribbon: from the top of the front white connector (x 13.6, z 0.1, top y ≈ 42.9) forward into the head's cable
+    // tunnel (|z| < 7, floor y 54.6, roof y 57.5, opening at x ≈ 34) and straight along it, so it never touches the shell
+    loom(function (z, i) { var y = 56.05 + (i - 2.5) * 0.02; return [V3(13.6, 42.6, z), V3(14, 47.5, z), V3(18.5, 52, z), V3(25.5, 55, z), V3(31.5, y, z), V3(36, y, z), V3(44, y, z), V3(52, y, z)]; }, 1.6, 0.1);
+    var VC_X = -58.5, VC_Z = 12.3, VC_TOP = 41.3;
     [-1, 1].forEach(function (s) {
-      loom(function (z, i) { var k = z - s * 11.5; return [V3(-41.8, 40.6, z), V3(-41, 46, z), V3(-34, 56 + i * 0.6, s * 8 + k * 0.9), V3(-12, 62 + i * 0.4, s * 5 + k * 0.7), V3(12, 62, s * 3 + k * 0.5), V3(26, 52, s * 2 + k * 0.4), V3(34, 60, s * 1.5 + k * 0.35)]; }, 2.0, s * 11.5);
-      loom(function (z, i) { var k = z - s * 14; return [V3(-48.5, 38.6, z), V3(-50, 47 + i * 0.5, z + s * 1), V3(-44, 54 + i * 0.6, s * 19 + k), V3(-28, 52 + i * 0.4, s * 22 + k), V3(-14, 48, s * 18.5 + k * 0.8), V3(-11.3, 43.6, s * 16 + k * 0.6)]; }, 1.25, s * 14);
+      // vertical connectors beside the ESP32 (not in schema.stl): white housing
+      var hs = add(new T.BoxGeometry(12.6, 5.5, 4.4), M.white); hs.position.set(VC_X, 35.82 + 2.75, s * VC_Z);
+      var hc = add(new T.BoxGeometry(10.4, 0.3, 2.2), M.socket); hc.position.set(VC_X, VC_TOP + 0.02, s * VC_Z); hc.castShadow = false;
+      // loop: front connector pins (x -42.5, z = ±7.75 … ±15.25, 1.5 mm pitch, top 40.9) → up and back → vertical connector pins (along x)
+      WIRE.forEach(function (mat, i) {
+        var o = (i - 2.5) * 1.5, zs = s * 11.5 + o, xe = VC_X - s * o;
+        // longer, looser loop (~30 % more wire): rises higher and bulges a little forward and outward before coming back down
+        var w = add(new T.TubeGeometry(new T.CatmullRomCurve3([V3(-42.5, 40.7, zs), V3(-42.2, 49, zs), V3(-41.5, 57 + i * 0.35, zs + s * 1.2),
+          V3(-46, 62.5 + i * 0.3, s * 13.8 + o * 0.8), V3(-53, 61 + i * 0.25, s * 13.6 + o * 0.6), V3(xe + 2.5, 53 + i * 0.15, s * VC_Z + o * 0.3), V3(xe, VC_TOP - 0.6, s * VC_Z)]), 56, 0.52, 6, false), mat);
+        w.castShadow = false;
+      });
+    });
+    // four socket-head screws holding the board, driven in from the top (Ø3.2 holes at the board corners)
+    [[-69.3, -27], [-69.3, 27], [14.7, -27], [14.7, 27]].forEach(function (c) {
+      var hd = add(new T.CylinderGeometry(2.75, 2.75, 2.4, 24), M.screw); hd.position.set(c[0], 35.82 + 1.2, c[1]);
+      var hx = add(new T.CylinderGeometry(1.25, 1.25, 0.4, 6), M.socket); hx.position.set(c[0], 35.82 + 2.42, c[1]); hx.castShadow = false;
     });
     // clear light-guide rods: plugged into the two holes of the white holder, which sits upside down on the
     // outer (rear) side of the rear roll-cage posts (holes 40 mm apart, flat top at y 41.4), rise straight up, then bend back in a smooth arc
@@ -320,7 +344,8 @@
     mergeStatic(T, body);
     var MATS = { head: M.head, cage: M.cage, chassis: M.chassis, wheels: M.wheel, tracks: M.belt };
     return {
-      bot: bot, drawFrame: drawFrame, set onDraw(f) { onDraw = f; },
+      // minY = lowest point of the robot (tips of the track treads), in world units
+      bot: bot, drawFrame: drawFrame, minY: (WY - R - 1.25 - 1.05) * S, set onDraw(f) { onDraw = f; },
       setColors: function (c) { Object.keys(c || {}).forEach(function (k) { if (MATS[k]) MATS[k].color.set(c[k]).convertSRGBToLinear(); }); }
     };
   }
@@ -378,6 +403,7 @@
 
       var robot = buildRobot(T, GEO, colors, shadows), bot = robot.bot;
       scene.add(bot);
+      var SHADOW_PTS = []; // visible part of the contact shadow, so the camera fit keeps it in frame too
       if (shadowMode === 'contact') bakeContactShadow();
 
       // soft contact shadow: the robot's silhouette seen from above, rendered once, blurred, and laid under it
@@ -399,23 +425,54 @@
           var t = document.createElement('canvas'); t.width = t.height = b[0]; var tc = t.getContext('2d');
           tc.drawImage(mc, 0, 0, b[0], b[0]); ox.globalAlpha = b[1]; ox.drawImage(t, 0, 0, 128, 128);
         });
+        var sd = ox.getImageData(0, 0, 128, 128).data;
+        for (var sv = 0; sv < 128; sv += 2) for (var su = 0; su < 128; su += 2)
+          if (sd[(sv * 128 + su) * 4 + 3] * 0.42 > 6) SHADOW_PTS.push(-15 + (su + 0.5) * 30 / 128, robot.minY, -15 + (sv + 0.5) * 30 / 128);
         var sh = new T.Mesh(new T.PlaneGeometry(30, 30), new T.MeshBasicMaterial({ map: new T.CanvasTexture(out), transparent: true, opacity: 0.42, depthWrite: false, toneMapped: false }));
-        sh.rotation.x = -Math.PI / 2; sh.position.y = 0.02; sh.renderOrder = -1; bot.add(sh);
+        sh.rotation.x = -Math.PI / 2; sh.position.y = robot.minY - 0.004; sh.renderOrder = -1; sh.userData.noFit = true; bot.add(sh); // just under the treads, so the robot never cuts through it
       }
       api.setColors = function (c) { robot.setColors(c); requestRender(); };
 
       // ---------- camera: fits the robot (tracks + antennas) into any box size ----------
-      var TARGET = new T.Vector3(0, 7.6, 0), REST_PITCH = 0.06, dist = 54;
-      var yaw = restYaw, vel = autoSpeed, pitch = REST_PITCH;
+      var TARGET = new T.Vector3(0, 7.6, 0), REST_PITCH = 0.06, P_MIN = -0.85, P_MAX = 1.05, P_N = 14;
+      var yaw = restYaw, vel = autoSpeed, pitch = REST_PITCH, DIST = [];
+      // Outline of the robot: its vertices thinned to a 1-unit grid (incl. every track tread), relative to the look-at point.
+      var HULL = (function () {
+        bot.rotation.y = 0; bot.updateMatrixWorld(true);
+        var seen = new Uint8Array(81 * 81 * 81), out = [], v = new T.Vector3(), im = new T.Matrix4(), mw = new T.Matrix4();
+        var keep = function () { var k = ((Math.round(v.x) + 40) * 81 + (Math.round(v.y) + 40)) * 81 + Math.round(v.z) + 40; if (!seen[k]) { seen[k] = 1; out.push(v.x, v.y - TARGET.y, v.z); } };
+        bot.traverse(function (o) {
+          if (!o.isMesh || o.userData.noFit) return;
+          var pa = o.geometry.attributes.position, n = pa.count, i;
+          if (o.isInstancedMesh) for (var k = 0; k < o.count; k++) { o.getMatrixAt(k, im); mw.multiplyMatrices(o.matrixWorld, im); for (i = 0; i < n; i++) { v.fromBufferAttribute(pa, i).applyMatrix4(mw); keep(); } }
+          else for (i = 0; i < n; i++) { v.fromBufferAttribute(pa, i).applyMatrix4(o.matrixWorld); keep(); }
+        });
+        for (var si = 0; si < SHADOW_PTS.length; si += 3) { v.set(SHADOW_PTS[si], SHADOW_PTS[si + 1], SHADOW_PTS[si + 2]); keep(); }
+        return new Float32Array(out);
+      })();
+      // For each camera pitch: the camera distance at which the whole robot stays inside the frame at ANY rotation
+      // (checked every 10°, +4 % margin), so turning or tilting it never crops the antennas or the tracks.
       function fit() {
         var w = host.clientWidth || 1, h = host.clientHeight || 1;
         renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
         var tv = Math.tan(T.MathUtils.degToRad(camera.fov) / 2), th = tv * camera.aspect;
-        dist = Math.max(14.2 / th, 11.0 / tv) / zoom; // vertical room for the antenna tips
+        for (var pi = 0; pi < P_N; pi++) {
+          var p = P_MIN + (P_MAX - P_MIN) * pi / (P_N - 1), sp = Math.sin(p), cp = Math.cos(p), need = 0;
+          for (var a = 0; a < 36; a++) {
+            var ya = a * Math.PI / 18, sy = Math.sin(ya), cy = Math.cos(ya);
+            for (var j = 0; j < HULL.length; j += 3) {
+              var x = HULL[j], y = HULL[j + 1], z = HULL[j + 2], qx = x * cy + z * sy, qz = -x * sy + z * cy;
+              var depth = y * sp + qz * cp, up = y * cp - qz * sp;
+              var d = depth + Math.max(Math.abs(qx) / th, Math.abs(up) / tv); if (d > need) need = d;
+            }
+          }
+          DIST[pi] = need * 1.04;
+        }
         requestRender();
       }
       function placeCamera() {
-        var d = dist * (1 + 0.32 * Math.abs(pitch - REST_PITCH));
+        var f = Math.max(0, Math.min(P_N - 1, (pitch - P_MIN) / (P_MAX - P_MIN) * (P_N - 1))), i0 = Math.floor(f), i1 = Math.min(P_N - 1, i0 + 1);
+        var d = (DIST[i0] + (DIST[i1] - DIST[i0]) * (f - i0)) / zoom;
         camera.position.set(0, TARGET.y + d * Math.sin(pitch), d * Math.cos(pitch)); camera.lookAt(TARGET);
       }
 
