@@ -1,5 +1,5 @@
 /*!
- * Buildibots 3D robotas – vienas failas visiems Webflow elementams (v7)
+ * Buildibots 3D robotas – vienas failas visiems Webflow elementams (v8 – su priedais)
  * Modelis: buildibots-robot.glb. LED ekrane – tikros roboto GIF animacijos (21×17).
  *
  * 1) HERO – surinktas robotas originaliomis spalvomis (mėlyna galva, raudonas rėmas, žalias korpusas, balti ratai):
@@ -16,10 +16,14 @@
  *
  * Atributai: data-explode="0…1" (pradinė būsena; hero = 1), data-label-from / data-label-to,
  *   data-ui="none" – be įmontuoto slankiklio (valdo puslapis per API), data-mode="hero" (hero ant bet kurio elemento),
- *   data-face="cute" – pradinis veidukas, data-color-head / -cage / -chassis / -wheels / -tracks – pradinės spalvos,
+ *   data-face="cute" – pradinis veidukas (nejudantis kadras), data-color-head / -cage / -chassis / -wheels / -tracks – pradinės spalvos,
  *   data-rotate-speed, data-yaw, data-zoom, data-interactive="false", data-shadows="contact|real|false".
+ *   data-accessories="wings,horns" – pradiniai priedai.
  * API (host.__bbRobot arba įvykis 'buildibots:ready' → e.detail): setProgress(0…1), setColors({chassis:'#…'}),
- *   setFace('angry' | null), play('cute'), faces (sąrašas), setYaw, pause / resume, destroy.
+ *   setFace('angry' | null), play('cute'), faces (sąrašas), setYaw, pause / resume, destroy,
+ *   setAccessory('horns', true|false), toggleAccessory('horns'), setAccessories(['wings']), getAccessories(), accessories (sąrašas).
+ *   Priedai: wings (sparnai), horns (ragai), mustache (ūsai), spoiler (spoileris), rings (žiedai), heart (širdutė);
+ *   jų spalva = rėmo (cage) spalva; visus galima derinti tarpusavyje.
  */
 (function () {
   'use strict';
@@ -103,7 +107,7 @@
     root.updateMatrixWorld(true);
     var inv = new T.Matrix4().copy(root.matrixWorld).invert(), groups = {}, order = [], drop = [];
     root.traverse(function (o) {
-      if (!o.isMesh || o.isInstancedMesh || Array.isArray(o.material) || o.material.map || o.material.transparent) return;
+      if (!o.isMesh || o.isInstancedMesh || o.userData.noMerge || Array.isArray(o.material) || o.material.map || o.material.transparent) return;
       var key = o.material.uuid + (o.castShadow ? '+' : '-');
       if (!groups[key]) { groups[key] = { mat: o.material, cast: o.castShadow, recv: o.receiveShadow, items: [], nv: 0, ni: 0 }; order.push(key); }
       var g = o.geometry, n = g.attributes.position.count;
@@ -571,26 +575,143 @@
     // clear light-guide rods: plugged into the two holes of the white holder, which sits upside down on the
     // outer (rear) side of the rear roll-cage posts (holes 40 mm apart, flat top at y 41.4), rise straight up, then bend back in a smooth arc
     TAG = 'rods';
-    var HOLE_X = -68.43, HOLE_Y = 38.4, HOLE_Z = 20, Rc = 189, th = 0.59; // ≈105 mm rise, ≈32 mm sweep back
+    var HOLE_X = -68.43, HOLE_Y = 38.4, HOLE_Z = 20, Rc = 189, th = 0.59, RODTIPS = [], RODCURVES = []; // ≈105 mm rise, ≈32 mm sweep back
     [-1, 1].forEach(function (s) {
       var pts = [];
       for (var k = 0; k <= 12; k++) { var t = th * k / 12; pts.push(new T.Vector3(HOLE_X - Rc * (1 - Math.cos(t)), HOLE_Y + Rc * Math.sin(t), s * HOLE_Z)); }
       var curve = new T.CatmullRomCurve3(pts);
       var rod = add(new T.TubeGeometry(curve, 48, 1.75, 12, false), M.rod); rod.castShadow = false; rod.renderOrder = 2;
       var core = add(new T.TubeGeometry(curve, 48, 0.55, 6, false), M.rodCore); core.castShadow = false; core.renderOrder = 1;
-      var tipP = curve.getPoint(1), tipD = curve.getTangent(1);
+      var tipP = curve.getPoint(1), tipD = curve.getTangent(1); RODTIPS.push({ p: tipP, d: tipD }); RODCURVES.push(curve);
       var cap = add(new T.RingGeometry(0.9, 1.75, 16), M.rodCap); cap.position.copy(tipP); cap.lookAt(tipP.clone().add(tipD)); cap.castShadow = false;
+    });
+
+    // ---------- accessories (priedai) ----------
+    // Built once, hidden until chosen (setAccessory). They wear the frame's colour (M.cage), so they follow setColors({ cage }).
+    // Each sits where it would clip onto the real robot and comes off with the part it is clipped to when the robot is taken apart.
+    var V = function (x, y, z) { return new T.Vector3(x, y, z); };
+    // tube along a curve whose radius follows rf(t) (0 = start, 1 = end), both ends closed
+    function taper(pts, rf, segs, radial) {
+      var curve = new T.CatmullRomCurve3(pts), fr = curve.computeFrenetFrames(segs, false), P = [], I = [], r = radial || 12;
+      for (var i = 0; i <= segs; i++) {
+        var t = i / segs, c = curve.getPointAt(t), rad = rf(t), n = fr.normals[i], b = fr.binormals[i];
+        for (var j = 0; j < r; j++) { var a = j / r * Math.PI * 2, ca = Math.cos(a) * rad, sa = Math.sin(a) * rad; P.push(c.x + n.x * ca + b.x * sa, c.y + n.y * ca + b.y * sa, c.z + n.z * ca + b.z * sa); }
+      }
+      for (i = 0; i < segs; i++) for (j = 0; j < r; j++) { var a0 = i * r + j, a1 = i * r + (j + 1) % r, b0 = a0 + r, b1 = a1 + r; I.push(a0, b0, a1, a1, b0, b1); }
+      var c0 = curve.getPointAt(0), c1 = curve.getPointAt(1), k0 = P.length / 3; P.push(c0.x, c0.y, c0.z, c1.x, c1.y, c1.z);
+      for (j = 0; j < r; j++) { I.push(k0, j, (j + 1) % r); I.push(k0 + 1, segs * r + (j + 1) % r, segs * r + j); }
+      var g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(P, 3)); g.setIndex(I); g.computeVertexNormals(); return g;
+    }
+    var ACC = { wings: ['acc-wings-', 'acc-wings+'], horns: ['acc-horns'], mustache: ['acc-mustache-', 'acc-mustache+'], spoiler: ['acc-spoiler'], rings: ['acc-rings'], heart: ['acc-heart-', 'acc-heart+'] };
+    var NH = RING_N, FY = V(-RING_N.y, RING_N.x, 0).normalize(), HC = V(RING_C.x + HEAD_DX - 1.5 * NH.x, RING_C.y - 1.5 * NH.y, 0), HR = 35.5; // head dome: centre, radius
+    // Ragai: two curved horns on the upper sides of the head
+    TAG = 'acc-horns';
+    [-1, 1].forEach(function (s) {
+      var d = FY.clone().multiplyScalar(0.78).addScaledVector(NH, -0.3).add(V(0, 0, s * 0.55)).normalize(), b = HC.clone().addScaledVector(d, HR);
+      var at = function (o, u, sd, f) { return b.clone().addScaledVector(d, o).add(V(0, u, s * sd)).addScaledVector(NH, f); };
+      add(taper([at(-4, 0, 0, 0), at(3, 0, 0, 0), at(8, 5, 2.5, 0), at(10.5, 12.5, 4, 1.5), at(9.5, 19.5, 3, 5), at(6.5, 23.5, 1, 8.5)],
+        function (t) { return 0.55 + 5.2 * Math.pow(1 - t, 0.9); }, 48, 16), M.cage);
+    });
+    // Ūsai: cat whiskers – three sturdy, gently drooping whiskers growing out of a rounded pad on each side of the head
+    [-1, 1].forEach(function (s) {
+      TAG = s < 0 ? 'acc-mustache-' : 'acc-mustache+';
+      var Z = V(0, 0, s), base = V(50.5, 80.5, s * 34.6); // widest point of the dome's side, just behind the bezel
+      var pad = add(new T.SphereGeometry(6.5, 24, 14), M.cage); pad.position.copy(base); pad.rotation.x = Math.PI / 2; pad.scale.set(1, 0.55, 1);
+      [-1, 0, 1].forEach(function (k) {
+        var w = Z.clone().add(V(0.32, 0.3 * k, 0)).normalize(), down = V(0, -1, 0);
+        var p0 = base.clone().addScaledVector(Z, -1.5), p1 = base.clone().addScaledVector(w, 13), p2 = base.clone().addScaledVector(w, 26).addScaledVector(down, 1.2 + k * 0.4), p3 = base.clone().addScaledVector(w, 39).addScaledVector(down, 3.8 + k);
+        add(taper([p0, p1, p2, p3], function (t) { return 1.15 + 1.35 * Math.pow(1 - t, 0.7); }, 40, 12), M.cage);
+        var tip = add(new T.SphereGeometry(1.15, 12, 8), M.cage); tip.position.copy(p3); // rounded ends
+      });
+    });
+    // Snap clip used by the wings, the spoiler and the hearts: a 7 mm wide C-band round a Ø7 frame tube, rounded snap lips at
+    // the opening (which faces away from the part), and a block that carries the part. at = tube centre, dir = tube direction,
+    // out = direction from the tube towards the part. Returns the outer end of the block (where the part is fixed).
+    var GAP = 0.62, band = new T.Shape(); band.absarc(0, 0, 5.4, -Math.PI + GAP, Math.PI - GAP, false); band.absarc(0, 0, 3.75, Math.PI - GAP, -Math.PI + GAP, true);
+    var bandG = new T.ExtrudeGeometry(band, { depth: 6, bevelEnabled: true, bevelThickness: 0.5, bevelSize: 0.45, bevelSegments: 2, curveSegments: 28 }); bandG.translate(0, 0, -3);
+    var lipG = new T.CylinderGeometry(1.05, 1.05, 7, 12); lipG.rotateX(Math.PI / 2);
+    function snapClip(at, dir, out, blockW, blockD) {
+      var e1 = out.clone().addScaledVector(dir, -out.dot(dir)).normalize(), e2 = new T.Vector3().crossVectors(dir, e1).normalize();
+      var cg = new T.Group(); cg.position.copy(at); cg.quaternion.setFromRotationMatrix(new T.Matrix4().makeBasis(e1, e2, new T.Vector3().crossVectors(e1, e2)));
+      cg.userData.g = TAG; body.add(cg); // local: x towards the part, y across the tube, z along the tube
+      add(bandG, M.cage, cg);
+      [1, -1].forEach(function (k) { var lp = add(lipG, M.cage, cg), an = Math.PI - GAP; lp.position.set(Math.cos(an) * 4.6, k * Math.sin(an) * 4.6, 0); });
+      var blk = add(new T.BoxGeometry(4.4, blockW || 7, blockD || 6), M.cage, cg); blk.position.set(6.6, 0, 0);
+      return at.clone().addScaledVector(e1, 8.8);
+    }
+    // Sparnai: a pair of feathered wings clipped onto the two diagonal top bars of the roll cage, just behind the head, rising up and back
+    var wingShape = new T.Shape(), tips = [[61, -1], [52, -9], [42, -15], [31, -19], [19, -18.5], [8, -14]], notch = [[66, 8], [55, 3], [45, -3], [35, -7], [24, -8], [13, -6], [3, -4]];
+    wingShape.moveTo(0, 7); wingShape.quadraticCurveTo(22, 21, 46, 18); wingShape.quadraticCurveTo(63, 16, 66, 8);
+    for (var fk = 0; fk < tips.length; fk++) { // trailing edge: one rounded feather between each pair of notches
+      var n0 = notch[fk], n1 = notch[fk + 1], tp = tips[fk], mx = (n0[0] + n1[0]) / 2, my = (n0[1] + n1[1]) / 2;
+      wingShape.quadraticCurveTo(tp[0] + (tp[0] - mx) * 0.9, tp[1] + (tp[1] - my) * 0.9, n1[0], n1[1]);
+    }
+    wingShape.lineTo(0, 7);
+    var wingG = new T.ExtrudeGeometry(wingShape, { depth: 2, bevelEnabled: true, bevelThickness: 0.8, bevelSize: 0.8, bevelSegments: 2, curveSegments: 12 }); wingG.translate(0, 0, -1);
+    [-1, 1].forEach(function (s) {
+      TAG = s < 0 ? 'acc-wings-' : 'acc-wings+';
+      var U = V(-0.45, 0.8, 0.45 * s).normalize(), Vv = V(1, 0, 0).addScaledVector(U, -U.x).normalize(), W = new T.Vector3().crossVectors(U, Vv);
+      var out = W.z * s > 0 ? W.clone() : W.clone().negate();
+      var q = new T.Quaternion().setFromRotationMatrix(new T.Matrix4().makeBasis(U, Vv, W));
+      // snap clip on the diagonal top bar (centre line, Ø7), close to the head; the wing's root sits on the clip's block
+      var bar = V(24, 6.75, -s * 7.25).normalize(), top = snapClip(V(-6, 87.9, s * 14.25), bar, V(0, 1, 0), 8);
+      var root = top.clone().addScaledVector(U, -1.2).addScaledVector(Vv, -1.5);
+      var w1 = add(wingG, M.cage); w1.position.copy(root); w1.quaternion.copy(q);
+      var w2 = add(wingG, M.cage); w2.position.copy(root).addScaledVector(U, 1).addScaledVector(Vv, 4).addScaledVector(out, 2.4); w2.quaternion.copy(q); w2.scale.setScalar(0.6); // covert feathers
+    });
+    // Spoileris: rear wing on two struts, each on a snap clip on the rear cross tube of the roll cage (just in front of the antennas)
+    TAG = 'acc-spoiler';
+    var foil = new T.Shape(); foil.moveTo(10.5, 0); foil.quadraticCurveTo(4, 2.8, -10.5, 1.2); foil.lineTo(-10.5, -0.4); foil.quadraticCurveTo(2, -1.7, 10.5, 0);
+    var foilG = new T.ExtrudeGeometry(foil, { depth: 88, bevelEnabled: true, bevelThickness: 0.6, bevelSize: 0.6, bevelSegments: 2, curveSegments: 12 }); foilG.translate(0, 0, -44);
+    var fo = add(foilG, M.cage); fo.position.set(-53, 92.5, 0); fo.rotation.z = -0.18;
+    var plate = new T.Shape(); plate.moveTo(-12, -6); plate.lineTo(12, -4); plate.quadraticCurveTo(14, 4, 8, 7); plate.lineTo(-12, 8); plate.lineTo(-12, -6);
+    var plateG = new T.ExtrudeGeometry(plate, { depth: 1.8, bevelEnabled: true, bevelThickness: 0.4, bevelSize: 0.4, bevelSegments: 1 }); plateG.translate(0, 0, -0.9);
+    [-1, 1].forEach(function (s) {
+      var ep = add(plateG, M.cage); ep.position.set(-53.5, 92, s * 45.2); // end plates
+      // clip on the straight middle part of the rear cross tube (centre y 74.8), clear of the diagonal top bars; slim block and strut
+      var top = snapClip(V(-53, 74.8, s * 15), V(0, 0, 1), V(0, 1, 0), 3.4, 2.4);
+      var st = add(new T.BoxGeometry(3.2, 92 - top.y + 1, 2), M.cage); st.position.set(-53, (top.y - 1 + 92) / 2, s * 15); // strut up to the blade
+    });
+    // Širdutė: a heart badge on a snap clip, clipped onto the lower side bar of the roll cage (one on each side)
+    var heart = new T.Shape(); // 26 mm wide, point down
+    heart.moveTo(0, -12); heart.bezierCurveTo(-4, -7.5, -13, -3, -13, 3.5); heart.bezierCurveTo(-13, 9, -8.5, 11.5, -5.5, 11.5);
+    heart.bezierCurveTo(-2.5, 11.5, -0.6, 9.5, 0, 7.5); heart.bezierCurveTo(0.6, 9.5, 2.5, 11.5, 5.5, 11.5);
+    heart.bezierCurveTo(8.5, 11.5, 13, 9, 13, 3.5); heart.bezierCurveTo(13, -3, 4, -7.5, 0, -12);
+    M.heart = M.cage.clone(); M.heart.roughness = 0.75; // frame colour, but satin: the upturned face would otherwise flash white in the key light
+    var heartG = new T.ExtrudeGeometry(heart, { depth: 2.4, bevelEnabled: true, bevelThickness: 1.1, bevelSize: 1.1, bevelSegments: 3, curveSegments: 18 }); heartG.translate(0, 0, -1.2);
+    var BAR0 = V(8, 68, 36), BAR1 = V(-64, 54, 36); // centre line of the lower side bar (front hoop → rear hoop)
+    [-1, 1].forEach(function (s) {
+      TAG = s < 0 ? 'acc-heart-' : 'acc-heart+';
+      var a = BAR0.clone(), b = BAR1.clone(); a.z *= s; b.z *= s;
+      var dir = b.clone().sub(a).normalize(), at = a.clone().lerp(b, 0.5); // middle of the bar
+      // the whole badge (clip block and heart) is turned ~25° upwards about the bar; the clip's opening turns with it
+      var tilt = new T.Quaternion().setFromAxisAngle(dir, s * 0.44);
+      var top = snapClip(at, dir, V(0, 0, s).applyQuaternion(tilt), 8);
+      var hm = add(heartG, M.heart); hm.scale.set(0.95, 0.95, 1);
+      hm.quaternion.copy(tilt).multiply(new T.Quaternion().setFromAxisAngle(V(0, 1, 0), s > 0 ? 0 : Math.PI));
+      hm.position.copy(top).add(V(0, 1.2, s * 1.1).applyQuaternion(tilt)); // facing outwards and a little up
+    });
+
+    // Žiedai: three chunky rings ("donuts") slid onto the middle of each light-guide antenna
+    TAG = 'acc-rings';
+    var donut = new T.TorusGeometry(4.5, 2, 16, 40);
+    RODCURVES.forEach(function (cv) {
+      [0.4, 0.55, 0.7].forEach(function (t, i) {
+        var dn = add(donut, M.cage), p = cv.getPointAt(t), tg = cv.getTangentAt(t);
+        dn.position.copy(p); dn.quaternion.setFromUnitVectors(V(0, 0, 1), tg); if (i === 1) dn.scale.setScalar(1.12);
+      });
     });
 
     // one group per assembly (moved as a unit when exploding); static meshes are merged inside each group
     var ASM = {};
     body.children.slice().forEach(function (o) { var g = o.userData.g || 'misc'; if (!ASM[g]) { ASM[g] = new T.Group(); ASM[g].userData.g = g; } ASM[g].add(o); });
     Object.keys(ASM).forEach(function (g) { body.add(ASM[g]); mergeStatic(T, ASM[g]); });
+    Object.keys(ACC).forEach(function (k) { ACC[k] = ACC[k].map(function (g) { return ASM[g]; }).filter(Boolean); ACC[k].forEach(function (o) { o.visible = false; }); });
     // colour keys → every material that wears that colour (the track lugs use their own double-sided copy of the belt)
-    var MATS = { head: [M.head], cage: [M.cage], chassis: [M.chassis], wheels: [M.wheel], tracks: [M.belt, M.lug] };
+    var MATS = { head: [M.head], cage: [M.cage, M.heart], chassis: [M.chassis], wheels: [M.wheel], tracks: [M.belt, M.lug] };
     return {
       // minY = lowest point of the robot (tips of the track treads), in world units
-      bot: bot, asm: ASM, shankMat: M.shank, drawFrame: drawFrame, minY: (WY - R - 1.25 - 1.05) * S, set onDraw(f) { onDraw = f; },
+      bot: bot, asm: ASM, acc: ACC, shankMat: M.shank, drawFrame: drawFrame, minY: (WY - R - 1.25 - 1.05) * S, set onDraw(f) { onDraw = f; },
       setColors: function (c) { Object.keys(c || {}).forEach(function (k) { (MATS[k] || []).forEach(function (m) { m.color.set(c[k]).convertSRGBToLinear(); }); }); }
     };
   }
@@ -605,7 +726,12 @@
     cage: [[0, 112, 0], 8], bscrew: [[0, -40, 0], 8.6, 'chassis'], holder: [[-58, 66, 0], 9], rods: [[-84, 112, 0], 10], ribbon: [[26, 16, 0], 10, 'pcb'],
     head: [HD(0), 11], hscrew: [[-30, 0, 0], 11.6, 'cage'], screen: [HD(34), 12], face: [HD(66), 12.6], fscrew: [[NX * 30, NY * 30, 0], 13.2, 'face'],
     'hub-': [[0, 0, -98], 14], 'hub+': [[0, 0, 98], 14], 'track-': [[0, 0, -72], 14.4], 'track+': [[0, 0, 72], 14.4],
-    'wheel-': [[0, 0, -128], 15.2], 'wheel+': [[0, 0, 128], 15.2], 'wscrew-': [[0, 0, -42], 16, 'wheel-'], 'wscrew+': [[0, 0, 42], 16, 'wheel+'], misc: [[0, 0, 0], 0]
+    'wheel-': [[0, 0, -128], 15.2], 'wheel+': [[0, 0, 128], 15.2], 'wscrew-': [[0, 0, -42], 16, 'wheel-'], 'wscrew+': [[0, 0, 42], 16, 'wheel+'], misc: [[0, 0, 0], 0],
+    // accessories clip on right after the part that carries them
+    'acc-wings-': [[0, 12, -46], 8.3, 'cage'], 'acc-wings+': [[0, 12, 46], 8.3, 'cage'], 'acc-spoiler': [[-8, 38, 0], 8.45, 'cage'],
+    'acc-rings': [[-28, 42, 0], 10.4, 'rods'], 'acc-horns': [[0, 34, 0], 11.3, 'head'],
+    'acc-mustache-': [[0, 6, -34], 11.4, 'head'], 'acc-mustache+': [[0, 6, 34], 11.4, 'head'],
+    'acc-heart-': [[0, 0, -30], 8.4, 'cage'], 'acc-heart+': [[0, 0, 30], 8.4, 'cage']
   };
 
   // ---------- one embed instance ----------
@@ -748,7 +874,7 @@
 
       // ---------- camera: fits the robot into any box size, in every explode state, at any rotation ----------
       var TARGET = new T.Vector3(0, 7.6, 0), REST_PITCH = 0.06, P_MIN = -0.85, P_MAX = 1.05, P_N = 14, S_N = 9;
-      var yaw = restYaw, vel = autoSpeed, pitch = REST_PITCH, DIST = [], TY = [], fitAspect = 1;
+      var yaw = restYaw, vel = autoSpeed, pitch = REST_PITCH, DIST = [], TY = [], fitAspect = 1, refit = false;
       // Outline of every assembly (assembled positions, world units), thinned to a 1-unit grid
       var HULLS = (function () {
         GRP.forEach(function (G) { G.o.position.set(0, 0, 0); });
@@ -774,13 +900,15 @@
         var w = canvas.clientWidth || host.clientWidth || 1, h = canvas.clientHeight || 1; // the canvas leaves room for the slider below
         renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
         // the fit tables depend only on the aspect ratio: skip the (heavier) recompute for tiny changes, e.g. the mobile address bar
-        if (DIST.length && Math.abs(camera.aspect - fitAspect) / fitAspect < 0.03) { requestRender(); return; }
+        if (DIST.length && Math.abs(camera.aspect - fitAspect) / fitAspect < 0.03 && !refit) { requestRender(); return; }
+        refit = false;
         fitAspect = camera.aspect;
         var tv = Math.tan(T.MathUtils.degToRad(camera.fov) / 2), th = tv * camera.aspect;
         for (var si = 0; si < S_N; si++) {
           var s = si / (S_N - 1), lo = 1e9, hi = -1e9, sets = [];
           HULLS.forEach(function (H) {
             if (!H.G && s <= 0.82) return; // contact shadow: only near the assembled end
+            if (H.G && !H.G.o.visible) return; // accessories that are not on
             var r = H.G ? offAt(H.G, s) : [0, 0, 0], o = [-r[0] * S_BODY, r[1] * S_BODY, -r[2] * S_BODY]; // robot space -> world (body scaled 1/8, turned 180°)
             sets.push([H.pts, o[0], o[1], o[2]]);
             for (var j = 1; j < H.pts.length; j += 3) { var y = H.pts[j] + o[1]; if (y < lo) lo = y; if (y > hi) hi = y; }
@@ -820,8 +948,11 @@
         anim = { a: a, loop: !!o.loop, hold: !!o.hold, then: o.then || null }; animT = 0; frameIdx = -1;
         if (reduce) { robot.drawFrame(a.f[o.hold ? a.f.length - 1 : 0]); anim = null; }
       }
-      // after a one-off animation: back to the chosen face (setFace) or to the idle cycle
-      function nextIdle() { if (chosen) setAnim(chosen, { loop: true }); else setAnim(IDLE[idleI++ % IDLE.length]); }
+      // A chosen face (setFace) is a still picture: the one frame of that animation that reads best (no looping).
+      var STILL = { idle: 0, idle2: 12, cute: 4, angry: 5, sad: 4, sleepy: 7 };
+      function showStill(name) { var a = FACES.anims[name], i = STILL[name] !== undefined ? STILL[name] : Math.floor(a.f.length / 2); anim = null; frameIdx = -1; robot.drawFrame(a.f[i]); }
+      // after a one-off animation: back to the chosen still face, or to the animated idle cycle when none is chosen
+      function nextIdle() { if (chosen) showStill(chosen); else setAnim(IDLE[idleI++ % IDLE.length]); }
       function play(name, o) { setAnim(name, Object.assign({ then: nextIdle }, o || {})); }
       function stepFace(dt) {
         if (!anim) return;
@@ -835,7 +966,7 @@
       }
       api.play = function (name, o) { play(name, o); requestRender(); };
       api.faces = Object.keys(FACES.anims);
-      // setFace('angry') keeps that face looping (taps still play a short reaction, then it returns); setFace(null) = idle cycle
+      // setFace('angry') shows that face as a still (taps and drags no longer change it); setFace(null) = animated idle cycle
       api.setFace = function (name) { chosen = name && FACES.anims[name] ? name : null; nextIdle(); requestRender(); };
       api.getFace = function () { return chosen; };
 
@@ -856,12 +987,12 @@
           if (e.pointerType !== 'touch') pitch = Math.max(-0.85, Math.min(1.05, pitch + dy * 0.008));
           vel = (dx * 0.012) / Math.max(0.016, (now - lastT) / 1000);
           lastX = e.clientX; lastY = e.clientY; lastT = now;
-          if (moved && Math.abs(dx) > 1.5) { var f = dx > 0 ? 'right' : 'left'; if (f !== dragFace) { dragFace = f; setAnim(f, { hold: true }); } }
+          if (moved && !chosen && Math.abs(dx) > 1.5) { var f = dx > 0 ? 'right' : 'left'; if (f !== dragFace) { dragFace = f; setAnim(f, { hold: true }); } }
           requestRender();
         });
         var end = function () {
           if (!dragging) return; dragging = false; releasedAt = performance.now(); canvas.style.cursor = 'grab';
-          if (!moved && performance.now() - downT < 400) play(TAP[tapI++ % TAP.length]);
+          if (!moved && !chosen && performance.now() - downT < 400) play(TAP[tapI++ % TAP.length]);
           else if (dragFace) { if (Math.abs(vel) > 6) play('fastForward', { then: function () { play('relieved'); } }); else play('relieved'); }
           dragFace = null;
         };
@@ -907,6 +1038,25 @@
         var settled = !dragging && autoSpeed === 0 && prog === progTarget && Math.abs(vel) < 1e-3 && Math.abs(pitch - REST_PITCH) < 1e-3 && !anim;
         if (!settled || needsMore) { needsMore = false; raf = requestAnimationFrame(loop); }
       }
+
+      // ---------- accessories ----------
+      // setAccessory('horns', true|false) · toggleAccessory('horns') · setAccessories(['wings', 'horns']) (exactly these) · getAccessories()
+      api.accessories = Object.keys(robot.acc);
+      var EXCL = {}; // accessories that would collide take each other off (none at the moment)
+      var ALIAS = { flowers: 'rings' }; // older name
+      var accOn = function (k) { return !!(robot.acc[k] && robot.acc[k][0] && robot.acc[k][0].visible); };
+      api.getAccessories = function () { return api.accessories.filter(accOn); };
+      api.setAccessory = function (k, on) {
+        k = ALIAS[k] || k; if (!robot.acc[k]) return false;
+        on = on === undefined ? true : !!on;
+        if (on) (EXCL[k] || []).forEach(function (x) { if (accOn(x)) robot.acc[x].forEach(function (o) { o.visible = false; }); refit = true; });
+        if (accOn(k) !== on) { robot.acc[k].forEach(function (o) { o.visible = on; }); refit = true; }
+        if (refit) fit();
+        requestRender(); return true;
+      };
+      api.toggleAccessory = function (k) { k = ALIAS[k] || k; return api.setAccessory(k, !accOn(k)); };
+      api.setAccessories = function (list) { list = [].concat(list || []).map(function (k) { return ALIAS[k] || k; }); api.accessories.forEach(function (k) { api.setAccessory(k, list.indexOf(k) >= 0); }); };
+      (ds.accessories || opts.accessories || '').toString().split(',').forEach(function (k) { k = k.trim(); k = ALIAS[k] || k; if (robot.acc[k]) robot.acc[k].forEach(function (o) { o.visible = true; }); });
 
       fit();
       setAnim('powerOn', { then: nextIdle });
@@ -1057,6 +1207,8 @@
       var sketch = { bot: real.bot.clone() }, ghost = { bot: real.bot.clone() }, hot = { bot: real.bot.clone() };
       var groupsOf = function (bot) { var m = {}; bot.children[0].children.forEach(function (g) { if (g.userData.g) m[g.userData.g] = g; }); return m; };
       [real, sketch, ghost, hot].forEach(function (o) { o.G = groupsOf(o.bot); scene.add(o.bot); });
+      // accessories (priedai) belong to the configurator only: the journey robot is built without them
+      [real, sketch, ghost, hot].forEach(function (o) { Object.keys(o.G).forEach(function (g) { if (g.indexOf('acc-') === 0) { o.G[g].parent.remove(o.G[g]); delete o.G[g]; } }); });
       var NAMES = Object.keys(real.G), isPrinted = function (g) { return !!(printV >= 2 ? PRINTED_V2 : PRINTED)[g]; };
       var printedNames = NAMES.filter(isPrinted), partNames = NAMES.filter(function (g) { return !isPrinted(g); });
       var EDGES = {}; // one edge set per geometry and angle, shared by the sketch and the CAD model
