@@ -1,5 +1,5 @@
 /*!
- * Buildibots 3D robotas – vienas failas abiem Webflow elementams (v6)
+ * Buildibots 3D robotas – vienas failas visiems Webflow elementams (v7)
  * Modelis: buildibots-robot.glb. LED ekrane – tikros roboto GIF animacijos (21×17).
  *
  * 1) HERO – surinktas robotas originaliomis spalvomis (mėlyna galva, raudonas rėmas, žalias korpusas, balti ratai):
@@ -8,7 +8,11 @@
  * 2) IŠRINKIMAS – detalės išskleistos, slankiklis „Išrinktas – Surinktas“ jas sudeda (raudona / žalia paletė):
  *   <div data-buildibots-explode data-glb="https://…/buildibots-robot.glb"></div>
  *
- *   <script src="https://…/buildibots-robot.js" defer><\/script>   (vienas skriptas abiem)
+ * 3) KELIONĖ – scroll seka „Nuo užduoties iki daikto rankose“ (pieštukinis eskizas → CAD → spausdinimas → surinkimas):
+ *   <div data-buildibots-journey data-glb="https://…/buildibots-robot.glb"></div>
+ *   Sekcijos struktūra ir atributai – žr. komentarą prie mountJourney žemiau.
+ *
+ *   <script src="https://…/buildibots-robot.js" defer><\/script>   (vienas skriptas visiems)
  *
  * Atributai: data-explode="0…1" (pradinė būsena; hero = 1), data-label-from / data-label-to,
  *   data-ui="none" – be įmontuoto slankiklio (valdo puslapis per API), data-mode="hero" (hero ant bet kurio elemento),
@@ -591,6 +595,19 @@
     };
   }
 
+  // ---------- explode table (shared by the slider view and the scroll journey) ----------
+  var NX = 0.927, NY = 0.3751, HD = function (d) { return [58 + NX * d, 108 + NY * d, 0]; };
+  // [offset, order, parent]: a part with a parent rides with it (screws stay with the part they hold, plugs with the board)
+  // and its own offset is added on top, along the direction it is pulled out
+  var EXPLODE_TABLE = {
+    chassis: [[0, -30, 0], 0], motor: [[0, 6, 0], 1], battery: [[0, -84, 0], 2], strap: [[0, -118, 0], 3], sscrew: [[0, -30, 0], 3.6, 'strap'],
+    plate: [[0, 26, 0], 5], pcb: [[0, 52, 0], 6], pscrew: [[0, 30, 0], 7, 'pcb'], 'loom-': [[0, 10, -30], 7.5, 'pcb'], 'loom+': [[0, 10, 30], 7.5, 'pcb'],
+    cage: [[0, 112, 0], 8], bscrew: [[0, -40, 0], 8.6, 'chassis'], holder: [[-58, 66, 0], 9], rods: [[-84, 112, 0], 10], ribbon: [[26, 16, 0], 10, 'pcb'],
+    head: [HD(0), 11], hscrew: [[-30, 0, 0], 11.6, 'cage'], screen: [HD(34), 12], face: [HD(66), 12.6], fscrew: [[NX * 30, NY * 30, 0], 13.2, 'face'],
+    'hub-': [[0, 0, -98], 14], 'hub+': [[0, 0, 98], 14], 'track-': [[0, 0, -72], 14.4], 'track+': [[0, 0, 72], 14.4],
+    'wheel-': [[0, 0, -128], 15.2], 'wheel+': [[0, 0, 128], 15.2], 'wscrew-': [[0, 0, -42], 16, 'wheel-'], 'wscrew+': [[0, 0, 42], 16, 'wheel+'], misc: [[0, 0, 0], 0]
+  };
+
   // ---------- one embed instance ----------
   function mount(host, opts) {
     if (host.__bbRobot) return host.__bbRobot;
@@ -706,17 +723,7 @@
       // offset of each assembly when the robot is fully taken apart (mm, robot space: +x front, +y up, +z side)
       // and its turn in the assembly order (0 = first to snap in when the slider moves towards "assembled")
       // head-side parts leave along the screen's axis (N), each a step further out
-      var NX = 0.927, NY = 0.3751, HD = function (d) { return [58 + NX * d, 108 + NY * d, 0]; };
-      // [offset, order, parent]: a part with a parent rides with it (screws stay with the part they hold, plugs with the board)
-      // and its own offset is added on top, along the direction it is pulled out
-      var EXPLODE = {
-        chassis: [[0, -30, 0], 0], motor: [[0, 6, 0], 1], battery: [[0, -84, 0], 2], strap: [[0, -118, 0], 3], sscrew: [[0, -30, 0], 3.6, 'strap'],
-        plate: [[0, 26, 0], 5], pcb: [[0, 52, 0], 6], pscrew: [[0, 30, 0], 7, 'pcb'], 'loom-': [[0, 10, -30], 7.5, 'pcb'], 'loom+': [[0, 10, 30], 7.5, 'pcb'],
-        cage: [[0, 112, 0], 8], bscrew: [[0, -40, 0], 8.6, 'chassis'], holder: [[-58, 66, 0], 9], rods: [[-84, 112, 0], 10], ribbon: [[26, 16, 0], 10, 'pcb'],
-        head: [HD(0), 11], hscrew: [[-30, 0, 0], 11.6, 'cage'], screen: [HD(34), 12], face: [HD(66), 12.6], fscrew: [[NX * 30, NY * 30, 0], 13.2, 'face'],
-        'hub-': [[0, 0, -98], 14], 'hub+': [[0, 0, 98], 14], 'track-': [[0, 0, -72], 14.4], 'track+': [[0, 0, 72], 14.4],
-        'wheel-': [[0, 0, -128], 15.2], 'wheel+': [[0, 0, 128], 15.2], 'wscrew-': [[0, 0, -42], 16, 'wheel-'], 'wscrew+': [[0, 0, 42], 16, 'wheel+'], misc: [[0, 0, 0], 0]
-      };
+      var EXPLODE = EXPLODE_TABLE;
       var ORD_MAX = 16, SPAN = 0.26, S_BODY = 0.125;
       var GRP = Object.keys(robot.asm).map(function (g) {
         var e = EXPLODE[g] || [[0, 0, 0], 0];
@@ -922,8 +929,427 @@
     }
   }
 
-  function init() { Array.prototype.forEach.call(document.querySelectorAll('[data-buildibots-explode], [data-buildibots-robot]'), function (el) { mount(el); }); }
-  window.BuildibotsExplode = { mount: mount, init: init, faces: FACES };
+  // =====================================================================================================
+  // 3) KELIONĖ (scroll) – „Nuo užduoties iki daikto rankose“
+  //   <div data-buildibots-journey data-glb="https://…/buildibots-robot.glb"></div>
+  // The robot goes sketch → CAD model → 3D print → assembly (hero colours, LED switches on) while the page scrolls.
+  // Page structure it reads (all optional, found from the embed upwards):
+  //   [data-jr-section]  the tall scroll section (default: closest <section>)
+  //   [data-jr-stage]    its sticky 100vh child (default: viewport height)
+  //   [data-jr-frame]    the element that slides left / right on desktop (default: the embed itself)
+  //   [data-jr-card]     step cards, in order (fade + slide; the visible one gets .is-on)
+  //   [data-jr-fill] / [data-jr-label]  optional progress bar and step labels
+  // Attributes: data-print="2" (the shell parts are laid out on a build plate and printed side by side; default 1 = in place;
+  //   "3" = as 2, but packed 2 × 2: frame and cage side by side, each right behind one of the head parts),
+  //   data-move="18%" (desktop side travel: px or % of the section width), data-move-breakpoint="768" (below: no travel),
+  //   data-sketch-color, data-zoom, data-yaw, data-scroll="false" (drive it yourself with setProgress).
+  // The section also gets CSS variables: --jr-p (0…1), --jr-x (−1…1, robot side), --jr-step (0…n-1).
+  // =====================================================================================================
+  var PRINTED = { chassis: 1, cage: 1, head: 1, face: 1, plate: 1, holder: 1, strap: 1, misc: 1 }; // 3D-printed shell parts
+  var PRINTED_V2 = { chassis: 1, cage: 1, head: 1, face: 1 }; // v2 prints only the green frame, the red cage and the two blue head parts
+  var NO_SKETCH = { hscrew: 1, fscrew: 1, 'wscrew-': 1, 'wscrew+': 1, bscrew: 1, sscrew: 1, pscrew: 1 };
+
+  function mountJourney(host, opts) {
+    if (host.__bbRobot) return host.__bbRobot;
+    opts = opts || {};
+    var ds = host.dataset;
+    var pick = function (k, d) { return opts[k] !== undefined ? opts[k] : ds[k] !== undefined ? ds[k] : d; };
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var section = opts.section || host.closest('[data-jr-section]') || host.closest('section') || host.parentElement;
+    var stageEl = section.querySelector('[data-jr-stage]');
+    var frameEl = opts.frame || host.closest('[data-jr-frame]') || host;
+    var cards = Array.prototype.slice.call(section.querySelectorAll('[data-jr-card]'));
+    var fill = section.querySelector('[data-jr-fill]');
+    var labels = Array.prototype.slice.call(section.querySelectorAll('[data-jr-label]'));
+    var printV = ({ '2': 2, '3': 3 })[String(pick('print', '1'))] || 1;
+    var move = String(pick('move', '18%')), moveBp = parseFloat(pick('moveBreakpoint', 768));
+    var zoom = parseFloat(pick('zoom', 1.2)), restYaw = parseFloat(pick('yaw', 0.55));
+    var sketchColor = pick('sketchColor', '#2f62e8');
+    var colors = Object.assign({}, HERO_COLORS);
+    ['head', 'cage', 'chassis', 'wheels', 'tracks'].forEach(function (k) { var v = ds['color' + k.charAt(0).toUpperCase() + k.slice(1)]; if (v) colors[k] = v; });
+    Object.assign(colors, opts.colors || {});
+    var glb = opts.glb || ds.glb;
+    var api = { host: host, mode: 'journey' };
+    host.__bbRobot = api;
+    if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
+    if (host.clientHeight < 50 && !host.style.aspectRatio) host.style.aspectRatio = '1000 / 760';
+
+    var clamp = function (v, a, b) { return v < a ? a : v > b ? b : v; };
+    var seg = function (p, a, b) { return clamp((p - a) / (b - a), 0, 1); };
+    var ease = function (t) { return t * t * (3 - 2 * t); };
+    var stops = function (p, v) { var n = v.length - 1, x = p * n, i = Math.min(Math.floor(x), n - 1), t = x - i; return v[i] + (v[i + 1] - v[i]) * t; };
+    var N = Math.max(1, cards.length || 4);
+    // robot holds its side while a card is shown and only crosses over while the cards swap
+    var side = function (p) { var x = p * (N - 1), i = Math.min(Math.floor(x), N - 2), t = ease(clamp((x - i - 0.42) / 0.16, 0, 1)), s = function (j) { return j % 2 ? -1 : 1; }; return N < 2 ? 0 : s(i) + (s(i + 1) - s(i)) * t; };
+
+    // ---------- page part: cards, frame travel, CSS variables (works even before / without WebGL) ----------
+    var target = 0, cur = -1, raf = 0, draw3d = null, scrollDriven = String(pick('scroll', 'true')) !== 'false';
+    function readScroll() {
+      var r = section.getBoundingClientRect(), sh = stageEl ? stageEl.offsetHeight : window.innerHeight, span = r.height - sh;
+      target = span > 0 ? clamp(-r.top / span, 0, 1) : 0;
+    }
+    function drawPage(p) {
+      var x = side(p), wide = window.innerWidth >= moveBp;
+      var px = !wide ? 0 : /%$/.test(move) ? parseFloat(move) / 100 * section.clientWidth : parseFloat(move);
+      // individual transform properties: they add to any transform set in Webflow instead of replacing it
+      frameEl.style.translate = (x * px).toFixed(1) + 'px 0';
+      frameEl.style.scale = wide ? stops(p, [0.86, 0.9, 0.95, 1]).toFixed(3) : '1';
+      section.style.setProperty('--jr-p', p.toFixed(4));
+      section.style.setProperty('--jr-x', x.toFixed(3));
+      var step = Math.min(N - 1, Math.round(p * (N - 1)));
+      section.style.setProperty('--jr-step', step);
+      cards.forEach(function (el, i) {
+        var c0 = i / (N - 1), half = 0.5 / (N - 1), f = 0.05;
+        var k = N < 2 ? 1 : i === 0 ? 1 - seg(p, c0 + half - f, c0 + half)
+          : i === N - 1 ? seg(p, c0 - half, c0 - half + f)
+          : Math.min(seg(p, c0 - half, c0 - half + f), 1 - seg(p, c0 + half - f, c0 + half));
+        var e = ease(k);
+        el.style.opacity = e.toFixed(3);
+        el.style.translate = '0 ' + (32 * (1 - e)).toFixed(1) + 'px';
+        el.style.pointerEvents = e > 0.5 ? 'auto' : 'none';
+        el.classList.toggle('is-on', e > 0.5);
+        if (e > 0.5) el.removeAttribute('aria-hidden'); else el.setAttribute('aria-hidden', 'true');
+      });
+      if (fill) fill.style.transform = 'scaleX(' + (0.25 + 0.75 * p).toFixed(3) + ')';
+      labels.forEach(function (l, i) { l.classList.toggle('is-on', i === step); });
+    }
+    function loop(now) {
+      raf = 0;
+      cur = cur < 0 || reduce ? target : cur + (target - cur) * 0.1; // the drawn progress glides after the scroll position
+      if (Math.abs(target - cur) < 0.0004) cur = target;
+      drawPage(cur);
+      var more = draw3d ? draw3d(cur, now) : false;
+      if (cur !== target || more) raf = requestAnimationFrame(loop);
+    }
+    function kick() { if (scrollDriven) readScroll(); if (!raf) raf = requestAnimationFrame(loop); }
+    api.setProgress = function (v) { target = clamp(+v || 0, 0, 1); kick(); };
+    api.getProgress = function () { return cur; };
+    if (scrollDriven) { window.addEventListener('scroll', kick, { passive: true }); window.addEventListener('resize', kick); }
+    readScroll(); cur = target; drawPage(cur);
+
+    api.ready = deps(opts.meshopt !== false && ds.meshopt !== 'false').then(function () {
+      if (typeof glb === 'string' && glb.indexOf('base64,') >= 0) glb = b64ToBuffer(glb.split('base64,')[1]);
+      return loadGeometry(THREE, glb);
+    }).then(start).catch(function (e) { console.warn('[Buildibots robot]', e); });
+    return api;
+
+    function start(GEO) {
+      var T = THREE, renderer;
+      try { renderer = new T.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' }); } catch (e) { return; }
+      var small = window.innerWidth < moveBp, dpr = Math.min(small ? 2 : 1.5, window.devicePixelRatio || 1);
+      renderer.setPixelRatio(dpr);
+      renderer.outputEncoding = T.sRGBEncoding;
+      renderer.toneMapping = T.LinearToneMapping;
+      renderer.localClippingEnabled = true;
+      var canvas = renderer.domElement;
+      canvas.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;display:block;pointer-events:none;opacity:0;transition:opacity .5s ease';
+      canvas.setAttribute('aria-hidden', 'true');
+      host.appendChild(canvas);
+
+      var scene = new T.Scene();
+      var camera = new T.PerspectiveCamera(28, 1, 0.5, 300);
+      scene.add(new T.HemisphereLight(0xffffff, 0x8f9bb0, 0.42));
+      var key = new T.DirectionalLight(0xffffff, 1.6); key.position.set(-10, 24, 16); scene.add(key);
+      var rim = new T.DirectionalLight(0xdfeaff, 0.45); rim.position.set(14, 10, -16); scene.add(rim);
+
+      // ---------- the real robot (hero colours) + three look-alikes that share its geometry ----------
+      var real = buildRobot(T, GEO, colors, false, true);
+      var sketch = { bot: real.bot.clone() }, ghost = { bot: real.bot.clone() }, hot = { bot: real.bot.clone() };
+      var groupsOf = function (bot) { var m = {}; bot.children[0].children.forEach(function (g) { if (g.userData.g) m[g.userData.g] = g; }); return m; };
+      [real, sketch, ghost, hot].forEach(function (o) { o.G = groupsOf(o.bot); scene.add(o.bot); });
+      var NAMES = Object.keys(real.G), isPrinted = function (g) { return !!(printV >= 2 ? PRINTED_V2 : PRINTED)[g]; };
+      var printedNames = NAMES.filter(isPrinted), partNames = NAMES.filter(function (g) { return !isPrinted(g); });
+      var EDGES = {}; // one edge set per geometry and angle, shared by the sketch and the CAD model
+      var edgesOf = function (geo, deg) { var k = geo.uuid + deg; return EDGES[k] || (EDGES[k] = new T.EdgesGeometry(geo, deg)); };
+      var copyTo = function (m, obj) { obj.position.copy(m.position); obj.quaternion.copy(m.quaternion); obj.scale.copy(m.scale); obj.userData.line = true; m.parent.add(obj); return obj; };
+      var meshesOf = function (o) { var a = []; o.traverse(function (m) { if (m.isMesh && !m.userData.line) a.push(m); }); return a; };
+
+      // 1) sketch: a pencil drawing – dark outlines (inverted hull), paper-white fill, a few hard creases,
+      //    hidden outlines showing faintly through the paper and light construction lines that overshoot the form
+      var U = { thick: { value: 0.7 } }; // outline width, mm in robot space
+      var hull = function (m) { m.onBeforeCompile = function (sh) { sh.uniforms.uThick = U.thick; sh.vertexShader = 'uniform float uThick;\n' + sh.vertexShader.replace('#include <begin_vertex>', 'vec3 transformed = position + normalize(normal) * uThick;'); }; m.customProgramCacheKey = function () { return 'bb-hull'; }; return m; };
+      var ink = hull(new T.MeshBasicMaterial({ color: 0x2d3036, side: T.BackSide, transparent: true, opacity: 1, toneMapped: false }));
+      var hidden = hull(new T.MeshBasicMaterial({ color: 0xc9ccd2, side: T.BackSide, transparent: true, opacity: 1, depthTest: false, depthWrite: false, toneMapped: false }));
+      var paper = new T.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.82, toneMapped: false, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+      var crease = new T.LineBasicMaterial({ color: 0x55595f, transparent: true, opacity: 1, toneMapped: false });
+      var guide = new T.LineBasicMaterial({ color: 0xa7abb3, transparent: true, opacity: 1, toneMapped: false });
+      var CREASE = { chassis: 1, plate: 1, strap: 1, holder: 1, pcb: 1 };
+      NAMES.forEach(function (g) {
+        meshesOf(sketch.G[g]).forEach(function (m) {
+          if (NO_SKETCH[g] || m.isInstancedMesh || (m.material && m.material.map)) { m.visible = false; return; }
+          m.material = paper; m.castShadow = false;
+          copyTo(m, new T.Mesh(m.geometry, ink));
+          var hd = copyTo(m, new T.Mesh(m.geometry, hidden)); hd.renderOrder = -1;
+          if (CREASE[g]) copyTo(m, new T.LineSegments(edgesOf(m.geometry, 60), crease));
+        });
+      });
+      (function () { // construction lines (robot space, mm): ground, belt top and axle lines, wheel verticals and circles, axles, face circle
+        var gp = [], V = function (x, y, z) { return new T.Vector3(x, y, z); }, seg2 = function (a, b) { gp.push(a, b); };
+        var circle = function (c, u, v, r) { for (var i = 0; i < 48; i++) { var a0 = i / 48 * Math.PI * 2, a1 = (i + 1) / 48 * Math.PI * 2; seg2(c.clone().addScaledVector(u, Math.cos(a0) * r).addScaledVector(v, Math.sin(a0) * r), c.clone().addScaledVector(u, Math.cos(a1) * r).addScaledVector(v, Math.sin(a1) * r)); } };
+        var X = V(1, 0, 0), Y = V(0, 1, 0);
+        [-66, 66].forEach(function (z) {
+          seg2(V(-128, -2, z), V(112, -2, z)); seg2(V(-118, 50.3, z), V(104, 50.3, z)); seg2(V(-110, 25.3, z), V(98, 25.3, z));
+          [-58.7, 60.4].forEach(function (x) { seg2(V(x, -14, z), V(x, 150, z)); circle(V(x, 25.3, z), X, Y, 31); });
+        });
+        [-58.7, 60.4].forEach(function (x) { seg2(V(x, 25.3, -94), V(x, 25.3, 94)); });
+        seg2(V(-96, 97, 0), V(88, 97, 0)); seg2(V(-90, 117, -10), V(84, 117, 10));
+        seg2(V(-80, 78, -40), V(24, 102, -24)); seg2(V(-80, 78, 40), V(24, 102, 24));
+        var rn = V(0.927, 0.375, 0).normalize(), ru = V(0, 0, 1), rv = new T.Vector3().crossVectors(rn, ru), rc = V(57.4, 84.0, 0);
+        circle(rc, ru, rv, 38); seg2(rc.clone().addScaledVector(rn, -40), rc.clone().addScaledVector(rn, 34));
+        sketch.bot.children[0].add(new T.LineSegments(new T.BufferGeometry().setFromPoints(gp), guide));
+      })();
+
+      // 2) CAD model: grey with white edges; the printed shell and the other parts fade separately
+      var mkGhost = function () { return new T.MeshStandardMaterial({ color: new T.Color(0x8d939c).convertSRGBToLinear(), roughness: 0.55, transparent: true, opacity: 0, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }); };
+      var above = new T.Plane(new T.Vector3(0, 1, 0), 1e4), below = new T.Plane(new T.Vector3(0, -1, 0), 1e4), bandTop = new T.Plane(new T.Vector3(0, 1, 0), 1e4);
+      var gMat = mkGhost(), gMatX = mkGhost(), gEdge = new T.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, toneMapped: false }), gEdgeX = gEdge.clone();
+      [gMat, gEdge].forEach(function (m) { m.clippingPlanes = [above]; });
+      NAMES.forEach(function (g) {
+        var p = isPrinted(g);
+        meshesOf(ghost.G[g]).forEach(function (m) {
+          if (m.material && m.material.map) { m.visible = false; return; }
+          m.material = p ? gMat : gMatX; m.castShadow = false;
+          if (!m.isInstancedMesh && !NO_SKETCH[g]) copyTo(m, new T.LineSegments(edgesOf(m.geometry, 32), p ? gEdge : gEdgeX));
+        });
+      });
+
+      // 3) print: the freshly laid layer glows orange at the print height
+      var hotMat = new T.MeshBasicMaterial({ color: 0xff7a1a, toneMapped: false, clippingPlanes: [below, bandTop], side: T.DoubleSide });
+      NAMES.forEach(function (g) { if (!isPrinted(g)) { hot.G[g].visible = false; return; } meshesOf(hot.G[g]).forEach(function (m) { m.material = hotMat; m.castShadow = false; }); });
+
+      // real robot: clipped from above while printing, soft printed colours, full colours come in during assembly
+      var GREY = new T.Color(0x8d939c).convertSRGBToLinear(), DARK = new T.Color(0x222222), paint = [], mats = new Set();
+      real.bot.traverse(function (o) { if (o.isMesh) [].concat(o.material).forEach(function (m) { mats.add(m); }); });
+      mats.forEach(function (m) { m.clippingPlanes = [below]; m.clipShadows = true; paint.push({ m: m, orig: m.color.clone(), mut: m.color.clone().lerp(GREY, 0.7), led: !!m.map }); });
+      var OFF = new Array(FACES.w * FACES.h + 1).join('0');
+      real.drawFrame(OFF);
+
+      // ---------- assembly: the same order and paths as the slider view (built so no part passes through another) ----------
+      var FLY = 0.6, SPAN = 0.26, ORD_MAX = 16;
+      var P = {}; NAMES.forEach(function (g) { var e = EXPLODE_TABLE[g] || [[0, 0, 0], 0]; P[g] = { off: e[0], par: e[2] || null, st: e[1] / ORD_MAX * (1 - SPAN) }; });
+      // each part: a quick lift-off, then a long, slowing approach, so it is seen being placed rather than snapping
+      var place = function (t) { return 1 - Math.pow(1 - Math.pow(t, 1.3), 4); }; // starts gently, long slowing approach
+      var outOf = function (g, s) { return 1 - place(clamp((s - P[g].st) / SPAN, 0, 1)); }; // 1 = apart, 0 = in place
+      var offAt = function (g, s) { var k = outOf(g, s) * FLY, o = P[g].off, r = [o[0] * k, o[1] * k, o[2] * k]; if (P[g].par && P[P[g].par]) { var q = offAt(P[g].par, s); r[0] += q[0]; r[1] += q[1]; r[2] += q[2]; } return r; };
+      var shanks = {}; NAMES.forEach(function (g) { real.G[g].traverse(function (o) { if (o.isMesh && o.material === real.shankMat) shanks[g] = o; }); });
+
+      // ---------- geometry facts (unrotated) ----------
+      [real, sketch, ghost, hot].forEach(function (o) { o.bot.rotation.y = 0; });
+      var bb = new T.Box3(), tmpB = new T.Box3(), S_BODY = 0.125;
+      var boxOf = function (names) { real.bot.updateMatrixWorld(true); bb.makeEmpty(); names.forEach(function (g) { tmpB.setFromObject(real.G[g]); if (!tmpB.isEmpty()) bb.union(tmpB); }); return bb.clone(); };
+      var allBox = boxOf(NAMES), prBox = boxOf(printedNames);
+      var CEN = {}; NAMES.forEach(function (g) { tmpB.setFromObject(real.G[g]); var c = tmpB.isEmpty() ? new T.Vector3() : tmpB.getCenter(new T.Vector3()); CEN[g] = [-c.x / S_BODY, c.y / S_BODY, -c.z / S_BODY]; }); // body space
+      var RAD = {}; NAMES.forEach(function (g) { tmpB.setFromObject(real.G[g]); RAD[g] = tmpB.isEmpty() ? 0 : tmpB.getBoundingSphere(new T.Sphere()).radius; });
+
+      // exact bounds from the vertices (Box3.setFromObject only turns the loose box, so a turned part would float)
+      function exactBox(obj) {
+        var b = new T.Box3(), v = new T.Vector3(); obj.updateMatrixWorld(true);
+        obj.traverse(function (m) {
+          if (!m.isMesh) return;
+          if (m.isInstancedMesh) { b.union(new T.Box3().setFromObject(m)); return; }
+          var pa = m.geometry.attributes.position, st = pa.count > 40000 ? 2 : 1;
+          for (var i = 0; i < pa.count; i += st) { v.fromBufferAttribute(pa, i).applyMatrix4(m.matrixWorld); b.expandByPoint(v); }
+        });
+        return b;
+      }
+      // a pose turns a part about its own centre C and moves it by T: x → q·sc·(x − C) + C + T (robot space)
+      var Q0 = new T.Quaternion(), qT = new T.Quaternion(), vT = new T.Vector3(), curT = {};
+      function setPose(g, q, Tv, sc, only) {
+        var C = CEN[g]; vT.set(C[0] * sc, C[1] * sc, C[2] * sc).applyQuaternion(q);
+        var x = C[0] + Tv[0] - vT.x, y = C[1] + Tv[1] - vT.y, z = C[2] + Tv[2] - vT.z;
+        (only || [real, ghost, hot]).forEach(function (o) { var G = o.G[g]; G.quaternion.copy(q); G.scale.setScalar(Math.max(sc, 1e-4)); G.position.set(x, y, z); });
+        curT[g] = Tv;
+      }
+      var lerp3 = function (a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; };
+
+      // print v2: the shell parts lie side by side on a build plate, each resting on its flat side, as they would be printed:
+      // the head dome with its open face down, the bezel ring flat, face up; the rest stand on their own feet
+      var BED = {}, bedMesh = null, bedTop = 0, bedHalf = 6.5, GROUND_B = real.minY / S_BODY;
+      if (printV >= 2) {
+        var RN = new T.Vector3(0.927, 0.3751, 0.0004).normalize();
+        var LAY = { head: new T.Quaternion().setFromUnitVectors(RN, new T.Vector3(0, -1, 0)), face: new T.Quaternion().setFromUnitVectors(RN, new T.Vector3(0, 1, 0)) };
+        var items = printedNames.map(function (g) {
+          var q = LAY[g] || Q0; setPose(g, q, [0, 0, 0], 1, [real]); real.bot.updateMatrixWorld(true);
+          var b = exactBox(real.G[g]); if (b.isEmpty()) return null;
+          // world → robot space: the body is scaled 1/8 and turned 180° (x and z flip)
+          return { g: g, q: q, x0: -b.max.x / S_BODY, x1: -b.min.x / S_BODY, z0: -b.max.z / S_BODY, z1: -b.min.z / S_BODY, y0: b.min.y / S_BODY, y1: b.max.y / S_BODY };
+        }).filter(Boolean).sort(function (a, b) { return (b.x1 - b.x0) * (b.z1 - b.z0) - (a.x1 - a.x0) * (a.z1 - a.z0); });
+        printedNames.forEach(function (g) { setPose(g, Q0, [0, 0, 0], 1); });
+        // the green frame is printed right where it will sit, the red cage behind it, and the two head parts in front
+        // of it (they go to the front of the robot), so on the way to their places no part crosses another
+        var GAP = 16, IT = {}; items.forEach(function (it) { IT[it.g] = it; });
+        var ch = IT.chassis || { x0: -80, x1: 20, z0: -40, z1: 40, y0: 0 }, bx0 = 1e9, bx1 = -1e9, bz0 = 1e9, bz1 = -1e9, topY = 0;
+        var put = function (it, tx, tz) { if (!it) return; BED[it.g] = { q: it.q, t: [tx, GROUND_B - it.y0, tz] };
+          bx0 = Math.min(bx0, it.x0 + tx); bx1 = Math.max(bx1, it.x1 + tx); bz0 = Math.min(bz0, it.z0 + tz); bz1 = Math.max(bz1, it.z1 + tz); topY = Math.max(topY, GROUND_B + it.y1 - it.y0); };
+        put(IT.chassis, 0, 0);
+        var H = IT.head, F = IT.face, dH = H ? H.z1 - H.z0 : 0, dF = F ? F.z1 - F.z0 : 0, tot = dH + (H && F ? GAP : 0) + dF;
+        if (printV === 3 && H && F && IT.cage && IT.chassis) {
+          // v3, compact 2 × 2: frame and cage side by side at the back, each right behind one of the head parts
+          var cg = IT.cage, G3 = 10, wA = Math.max(dH, ch.z1 - ch.z0), wB = Math.max(dF, cg.z1 - cg.z0), zA = -(wA + G3 + wB) / 2, zB = zA + wA + G3;
+          var backX = Math.max(ch.x1 - ch.x0, cg.x1 - cg.x0), frontX = Math.max(H.x1 - H.x0, F.x1 - F.x0), x0 = -(backX + G3 + frontX) / 2;
+          var cz = function (it, z, w) { return z + (w - (it.z1 - it.z0)) / 2 - it.z0; };
+          bx0 = 1e9; bx1 = -1e9; bz0 = 1e9; bz1 = -1e9; topY = 0; delete BED.chassis;
+          put(ch, x0 + backX - ch.x1, cz(ch, zA, wA)); put(cg, x0 + backX - cg.x1, cz(cg, zB, wB));
+          put(H, x0 + backX + G3 - H.x0, cz(H, zA, wA)); put(F, x0 + backX + G3 - F.x0, cz(F, zB, wB));
+        } else {
+          if (IT.cage) put(IT.cage, ch.x0 - GAP - IT.cage.x1, -(IT.cage.z0 + IT.cage.z1) / 2);
+          if (H) put(H, ch.x1 + GAP - H.x0, -tot / 2 - H.z0);
+          if (F) put(F, ch.x1 + GAP - F.x0, -tot / 2 + dH + (H ? GAP : 0) - F.z0);
+        }
+        bx0 -= GAP; bx1 += GAP; bz0 -= GAP; bz1 += GAP;
+        var maxW = bx1 - bx0, depth = bz1 - bz0, bcx = (bx0 + bx1) / 2, bcz = (bz0 + bz1) / 2;
+        bedTop = topY * S_BODY; bedHalf = maxW / 2 * S_BODY;
+        // the build plate: light, with a fine grid (robot space, so it turns with the robot)
+        var gc = document.createElement('canvas'); gc.width = gc.height = 256; var gx = gc.getContext('2d');
+        gx.fillStyle = '#eef1f5'; gx.fillRect(0, 0, 256, 256); gx.strokeStyle = 'rgba(51,51,51,.12)'; gx.lineWidth = 2;
+        for (var gi = 0; gi <= 256; gi += 32) { gx.beginPath(); gx.moveTo(gi, 0); gx.lineTo(gi, 256); gx.moveTo(0, gi); gx.lineTo(256, gi); gx.stroke(); }
+        var gt = new T.CanvasTexture(gc); gt.encoding = T.sRGBEncoding; gt.wrapS = gt.wrapT = T.RepeatWrapping;
+        var bw = maxW + 30, bd = depth + 30; gt.repeat.set(bw / 24, bd / 24);
+        bedMesh = new T.Mesh(new T.BoxGeometry(bw, 3, bd), new T.MeshBasicMaterial({ map: gt, transparent: true, opacity: 0, toneMapped: false }));
+        bedMesh.position.set(bcx, GROUND_B - 1.6, bcz); bedMesh.visible = false;
+      }
+
+      // print head with a glowing nozzle, zig-zagging over the print
+      var scan = new T.Group(), headMat = new T.MeshStandardMaterial({ color: 0x2d3036, roughness: 0.4, metalness: 0.3 });
+      var phead = new T.Mesh(new T.BoxGeometry(2.2, 1.4, 2.2), headMat); phead.position.y = 2.6; scan.add(phead);
+      var nozzle = new T.Mesh(new T.ConeGeometry(0.55, 1.1, 14), new T.MeshStandardMaterial({ color: 0xd8b25a, metalness: 0.8, roughness: 0.3 })); nozzle.rotation.x = Math.PI; nozzle.position.y = 1.4; scan.add(nozzle);
+      var beam = new T.Mesh(new T.CylinderGeometry(0.07, 0.07, 1, 8), new T.MeshBasicMaterial({ color: 0xffa03a, transparent: true, opacity: 0.85, toneMapped: false, depthWrite: false })); beam.position.y = 0.45; beam.scale.y = 0.9; scan.add(beam);
+      scan.add(new T.Mesh(new T.SphereGeometry(0.32, 14, 10), new T.MeshBasicMaterial({ color: 0xffd08a, toneMapped: false })));
+      var halo = new T.Mesh(new T.SphereGeometry(0.75, 14, 10), new T.MeshBasicMaterial({ color: 0xff8a2a, transparent: true, opacity: 0.35, toneMapped: false, depthWrite: false })); scan.add(halo);
+      var rail = new T.Mesh(new T.BoxGeometry(printV >= 2 ? bedHalf * 2 + 8 : 22, 0.35, 0.35), headMat); rail.position.y = 2.6; scan.add(rail);
+      scan.visible = false; scene.add(scan);
+
+      // soft contact shadow under the assembled robot (baked once, as in the hero)
+      var shadow = (function () {
+        var S2 = 256, rt = new T.WebGLRenderTarget(S2, S2), oc = new T.OrthographicCamera(-15, 15, 15, -15, 0.1, 80);
+        oc.position.set(0, 50, 0); oc.up.set(0, 0, -1); oc.lookAt(0, 0, 0);
+        var vis = [sketch.bot, ghost.bot, hot.bot]; vis.forEach(function (b) { b.visible = false; });
+        scene.overrideMaterial = new T.MeshBasicMaterial({ color: 0xffffff });
+        renderer.setRenderTarget(rt); renderer.setClearColor(0x000000, 0); renderer.clear(); renderer.render(scene, oc);
+        var px = new Uint8Array(S2 * S2 * 4); renderer.readRenderTargetPixels(rt, 0, 0, S2, S2, px);
+        renderer.setRenderTarget(null); scene.overrideMaterial = null; rt.dispose(); vis.forEach(function (b) { b.visible = true; });
+        var mc = document.createElement('canvas'); mc.width = mc.height = S2; var mx = mc.getContext('2d'), id = mx.createImageData(S2, S2);
+        for (var y = 0; y < S2; y++) for (var x = 0; x < S2; x++) id.data[(y * S2 + x) * 4 + 3] = px[((S2 - 1 - y) * S2 + x) * 4 + 3];
+        mx.putImageData(id, 0, 0);
+        var out = document.createElement('canvas'); out.width = out.height = 128; var ox = out.getContext('2d');
+        [[56, 0.6], [18, 0.5]].forEach(function (b) { var t = document.createElement('canvas'); t.width = t.height = b[0]; t.getContext('2d').drawImage(mc, 0, 0, b[0], b[0]); ox.globalAlpha = b[1]; ox.drawImage(t, 0, 0, 128, 128); });
+        var sh = new T.Mesh(new T.PlaneGeometry(30, 30), new T.MeshBasicMaterial({ map: new T.CanvasTexture(out), transparent: true, opacity: 0, depthWrite: false, toneMapped: false }));
+        sh.rotation.x = -Math.PI / 2; sh.position.y = real.minY - 0.004; sh.renderOrder = -1; real.bot.add(sh); return sh;
+      })();
+
+      if (bedMesh) real.bot.children[0].add(bedMesh);
+
+      // ---------- camera: the bounding sphere fits the box at any rotation; backs off while the parts are apart ----------
+      var sphA = allBox.getBoundingSphere(new T.Sphere()), camR = 0;
+      var PITCH = 0.2, distFor = function (s) { var fv = T.MathUtils.degToRad(camera.fov), fh = 2 * Math.atan(Math.tan(fv / 2) * camera.aspect); return s.radius / Math.sin(Math.min(fv, fh) / 2); };
+      function fit() { var w = host.clientWidth || 1, h = host.clientHeight || 1; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); kick(); }
+      var ro = window.ResizeObserver ? new ResizeObserver(fit) : null; if (ro) ro.observe(host); else window.addEventListener('resize', fit);
+
+      // ---------- LED face: dark while being built, switches on when the robot is complete ----------
+      var anim = null, animT = 0, frameIdx = -1, ledOn = false, lastNow = 0, IDLE = ['idle', 'idle', 'idle2', 'idle', 'cute'], idleI = 0;
+      function setAnim(name, then) { var a = FACES.anims[name]; if (!a) return; anim = { a: a, then: then }; animT = 0; frameIdx = -1; if (reduce) { real.drawFrame(a.f[a.f.length - 1]); anim = null; } }
+      function nextIdle() { setAnim(IDLE[idleI++ % IDLE.length], nextIdle); }
+      function stepFace(dt) {
+        if (!anim) return;
+        var a = anim.a, i = Math.floor((animT += dt) / (a.d / 1000));
+        if (i >= a.f.length) { var t = anim.then; anim = null; if (t) t(); return; }
+        if (i !== frameIdx) { frameIdx = i; real.drawFrame(a.f[i]); }
+      }
+
+      // ---------- one frame at progress p ----------
+      var visible = true;
+      var io = new IntersectionObserver(function (es) { visible = es[0].isIntersecting; if (visible) kick(); }, { rootMargin: '200px' });
+      io.observe(host);
+      var popScale = function (t) { var c = 1.4; t = clamp(t, 0, 1); return t <= 0 ? 0 : 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); }; // ease-out-back
+      draw3d = function (p, now) {
+        var dt = lastNow ? Math.min(0.05, (now - lastNow) / 1000) : 0; lastNow = now || 0;
+        if (!visible) return false;
+        var yaw = restYaw + (Math.PI * 2 + 1.3) * ease(Math.min(1, p / 0.92)); // ends three-quarter, screen facing us
+        [real, sketch, ghost, hot].forEach(function (o) { o.bot.rotation.y = yaw; });
+
+        // 01 → 02: the pencil sketch fades into the CAD model
+        var a = ease(seg(p, 0.12, 0.33));
+        ink.opacity = hidden.opacity = crease.opacity = guide.opacity = 1 - a; paper.opacity = 0.82 * (1 - a);
+        sketch.bot.visible = a < 1;
+        // 02 → 03: only the printed shell is kept; the other parts drift a little outwards and fade away (slowly)
+        var gone = ease(seg(p, 0.33, 0.47));
+        partNames.forEach(function (g) { var o = offAt(g, 0), k = 0.3 * gone / FLY; ghost.G[g].position.set(o[0] * k, o[1] * k, o[2] * k); ghost.G[g].visible = gone < 1 && a > 0; });
+        gMatX.opacity = a * (1 - gone); gEdgeX.opacity = 0.9 * gMatX.opacity;
+        // printing, bottom to top
+        // v2: the printed shell parts lie down on the build plate (before printing) and get up again (after)
+        var split = printV >= 2 ? ease(seg(p, 0.34, 0.46)) : 0, lift = printV >= 2 ? ease(seg(p, 0.72, 0.79)) : 0;
+        var pr = printV >= 2 ? ease(seg(p, 0.47, 0.71)) : ease(seg(p, 0.42, 0.7));
+        var LO = printV >= 2 ? real.minY : prBox.min.y, HI = (printV >= 2 ? bedTop : prBox.max.y) + 0.05;
+        if (bedMesh) { var bk = split * (1 - ease(seg(p, 0.712, 0.74))); bedMesh.material.opacity = bk; bedMesh.visible = bk > 0.001; }
+        var h = LO + (HI - LO) * pr, printing = pr > 0.001 && pr < 0.999;
+        below.constant = pr >= 0.999 ? 1e4 : h; above.constant = -h; bandTop.constant = -(h - 0.22);
+        gMat.opacity = a; gEdge.opacity = 0.9 * a;
+        if (printing) { gMat.opacity = 0.18 + 0.82 * (1 - Math.min(1, pr * 25)) * a; gEdge.opacity = 0.25; }
+        ghost.bot.visible = a > 0 && pr < 0.999;
+        hot.bot.visible = scan.visible = printing;
+        if (printing) {
+          var t = pr * 60, sx = Math.asin(Math.sin(t * Math.PI)) * 2 / Math.PI;
+          scan.position.set(sx * bedHalf, h, Math.sin(pr * Math.PI * 7) * (printV >= 2 ? 5 : 3.5));
+          rail.position.x = -scan.position.x;
+          halo.scale.setScalar(0.85 + 0.3 * Math.abs(Math.sin(t * 9)));
+        }
+
+        // 03 → 04: the printed shell comes apart, the other parts appear beside it, then everything is put
+        // together piece by piece in assembly order; colours come in, the LED switches on
+        var apart = printV >= 2 ? lift : ease(seg(p, 0.71, 0.79)), s = seg(p, 0.8, 0.985), assembling = p >= 0.8;
+        NAMES.forEach(function (g) {
+          var G = real.G[g], sc = 1, q = Q0, o;
+          var B = BED[g];
+          if (assembling) o = offAt(g, s);
+          else if (isPrinted(g)) {
+            var ap = offAt(g, 0);
+            if (B) { // v2: lying on the plate → one after another, in assembly order, each in an arc to its place beside the robot
+              var f0 = printV === 3 ? ({ cage: 0.71, chassis: 0.736, head: 0.756, face: 0.76 })[g] || 0.72 : 0.715 + P[g].st / (1 - SPAN) * 0.035, lk = ease(seg(p, f0, f0 + (printV === 3 ? 0.04 : 0.045)));
+              if (p >= f0) { q = qT.copy(B.q).slerp(Q0, lk); o = lerp3(B.t, ap, lk); o[1] += Math.min(40, 0.5 * Math.hypot(ap[0] - B.t[0], ap[1] - B.t[1], ap[2] - B.t[2])) * Math.sin(Math.PI * lk); }
+              else { q = qT.copy(Q0).slerp(B.q, split); o = lerp3([0, 0, 0], B.t, split); }
+            } else o = [ap[0] * apart, ap[1] * apart, ap[2] * apart];
+          }
+          else { o = offAt(g, 0); sc = popScale(seg(p, 0.73 + P[g].st * 0.05, 0.78 + P[g].st * 0.05)); }
+          if (isPrinted(g)) setPose(g, q, o, sc); else setPose(g, q, o, sc, [real]);
+          G.visible = isPrinted(g) ? pr > 0 : sc > 0.001 && p >= 0.73;
+          if (shanks[g]) shanks[g].visible = !assembling || outOf(g, s) > 0.001;
+        });
+        var c = s;
+        paint.forEach(function (q) { if (q.led) q.m.color.copy(DARK).lerp(q.orig, c); else q.m.color.copy(q.mut).lerp(q.orig, ease(c)); });
+        var sf = seg(s, 0.82, 1); shadow.material.opacity = 0.42 * ease(sf); shadow.visible = sf > 0;
+        var on = s > 0.97;
+        if (on !== ledOn) { ledOn = on; if (on) setAnim('powerOn', nextIdle); else { anim = null; real.drawFrame(OFF); } }
+        stepFace(dt);
+
+        // camera: keeps every visible part in frame (each part's bounding sphere at its current place), eased
+        var need = sphA.radius;
+        NAMES.forEach(function (g) {
+          var G = real.G[g]; if (!G.visible && !(isPrinted(g) && ghost.bot.visible)) return; // the CAD parts count too while they lie down
+          var C = CEN[g], Tg = curT[g] || [0, 0, 0], dx = (-(C[0] + Tg[0]) * S_BODY) - sphA.center.x, dy = (C[1] + Tg[1]) * S_BODY - sphA.center.y, dz = (-(C[2] + Tg[2]) * S_BODY) - sphA.center.z;
+          need = Math.max(need, Math.sqrt(dx * dx + dy * dy + dz * dz) + RAD[g] * G.scale.x);
+        });
+        if (bedMesh && bedMesh.visible) need = Math.max(need, Math.hypot(bedMesh.geometry.parameters.width, bedMesh.geometry.parameters.depth) / 2 * S_BODY * 1.1 + Math.hypot(bedMesh.position.x, bedMesh.position.z) * S_BODY);
+        camR = camR ? camR + (need - camR) * (reduce ? 1 : 0.12) : need; // eased, so the camera never jumps
+        var d = distFor({ radius: sphA.radius + (camR - sphA.radius) * 0.8 }) / zoom; // a part may brush the edge while far out
+        camera.position.set(0, sphA.center.y + d * Math.sin(PITCH), d * Math.cos(PITCH)); camera.lookAt(0, sphA.center.y, 0);
+        renderer.render(scene, camera);
+        return !!anim || Math.abs(need - camR) > 0.01; // keep the loop running while the face animates or the camera settles
+      };
+
+      fit();
+      canvas.style.opacity = '1'; host.classList.add('is-3d');
+      Array.prototype.forEach.call(host.querySelectorAll('[data-bb-fallback]'), function (el) { el.style.visibility = 'hidden'; });
+      cur = -1; kick();
+      api.destroy = function () { draw3d = null; if (ro) ro.disconnect(); io.disconnect(); renderer.dispose(); canvas.remove(); host.__bbRobot = null; host.classList.remove('is-3d'); };
+      setTimeout(function () { try { host.dispatchEvent(new CustomEvent('buildibots:ready', { bubbles: true, detail: api })); } catch (_) {} }, 0);
+    }
+  }
+
+  function init() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-buildibots-journey]'), function (el) { mountJourney(el); });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-buildibots-explode], [data-buildibots-robot]'), function (el) { if (!el.hasAttribute('data-buildibots-journey')) mount(el); });
+  }
+  window.BuildibotsExplode = { mount: mount, mountJourney: mountJourney, init: init, faces: FACES };
   // the same file also replaces the hero embed (buildibots-robot.js): BuildibotsRobot.mount(el) = assembled robot, hero colours
   if (!window.BuildibotsRobot) window.BuildibotsRobot = { mount: function (el, o) { return mount(el, Object.assign({ mode: 'hero' }, o || {})); }, init: init, faces: FACES };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
